@@ -25,6 +25,8 @@ MANIFEST
 
 # Datafolder
 data/
+logs/
+checkpoints/
 
 # IDE settings
 .vscode/
