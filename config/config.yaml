@@ -1,0 +1,29 @@
+model: # model configuration
+  arch:
+    activation:
+      alpha: 0.03
+      type: relu
+    channels: 128
+    channels_in : 2
+    channels_out : 3
+    units : 16  # skeleton model, dense layer 
+    residual: true
+    stages: 1
+    window: 3
+
+running:
+  epochs: 10
+  batch_size: 128
+  data_cut : 50
+  version: None
+
+dataset: # dataset configuration
+  location: /share/home/tchenegn/datasets
+  name: h36m
+  keypoints: gt
+  estimation: None
+  graph: # configuration for the skeleton format
+    skeleton:
+      number_of_joints: 17
+      parents: []
+      bones: []

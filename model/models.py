@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+@author: mansour
+"""
+# %% Imports
+import tensorflow as tf
+
+from model.graph import laplacian as matrix
+from model.graph.skeleton import H36M_17_JOINTS_SKELETON_BONES_PAIRS, SkeletonGraph
+from model import layers, ops
+from types import SimpleNamespace
+
+
+class MotionFineTuningModel(tf.keras.Model):
+    """ Neural Network for the Motion Fine-Tuning stage.
+    """
+    def __init__(self, config, bones_pairs : list=H36M_17_JOINTS_SKELETON_BONES_PAIRS, name="cl-mc-model", *args, **kwargs):
+        kwargs['name'] = name
+        super().__init__(*args, **kwargs)
+        self.joints = config.dataset.graph.skeleton.number_of_joints
+        self.skeleton = SkeletonGraph(self.joints, bones_pairs)
+        sk_conf = SimpleNamespace(number_of_joints=self.joints, bones=bones_pairs)
+        config.skeleton = sk_conf
+        self.params = config
+        self.window = config.model.arch.window
+        self.num_stages = config.model.arch.stages
+        self.residual = config.model.arch.residual
+        self.channels = config.model.arch.channels
+        self.out_features = config.model.arch.channels_out
+        self.activation = tf.keras.activations.swish
+
+        constraints = {}
+        for i in range(self.window):
+            constraints[i * self.joints] = [0, 0, 0]
+        self.pose_solver = layers.PoseSolver(self.skeleton, 3, self.window, constraints)
+        self.adj = matrix.normalized_matrix_A(self.skeleton, self.window, True)
+        self.delta_converter = layers.DeltaConverter(self.skeleton, 3, self.window, self.pose_solver.lgs.L)
+        self.graph_conv_seq = tf.keras.Sequential([
+            layers.GraphConv(self.channels,
+                            self.adj,
+                            residual=self.residual,
+                            activation=self.activation,
+                            name=f"{self.name}.hidden_graph_conv_0"),
+            tf.keras.layers.LayerNormalization(axis=[-1, -2],
+                                               name=f"{self.name}_norm_0"),
+            layers.GraphConv(self.channels,
+                            self.adj,
+                            residual=self.residual,
+                            activation=self.activation,
+                            name=f"{self.name}.hidden_graph_conv_1"),
+            tf.keras.layers.LayerNormalization(axis=[-1, -2],
+                                               name=f"{self.name}_norm_1"),
+            layers.GraphConv(self.out_features,
+                            self.adj,
+                            residual=self.residual,
+                            activation=self.activation,
+                            name=f"{self.name}.hidden_graph_conv_2")
+        ], name=f"{self.name}.st_poses_correction")
+
+    def call(self, inputs, gamma=None, training=None, mask=None):
+        if gamma is None:
+            vec = ops.vectorize(inputs, self.joints, self.window)
+            gamma = self.pose_solver.lgs.D @ vec
+        outputs = self.delta_converter(inputs)
+        for s in range(self.num_stages):
+            outputs = self.graph_conv_seq(outputs)
+            outputs = self.pose_solver(outputs, gamma)
+            outputs = self.delta_converter(outputs)
+
+        poses = self.pose_solver(outputs, gamma)
+        return outputs, poses
+
+
+class SkeletonModel(tf.keras.Model):
+    """ Neural network model that estimates bone lengths from a sequence of poses.
+    """    
+    def __init__(self, params, name="sk_model", *args, **kwargs):
+        """_summary_
+
+        Parameters
+        ----------
+        params : types.SimpleNamespace
+            Contains the configuration parameters for the module.
+        name : str, optional
+            Name for the neural network, by default "sk_model"
+        """        
+        kwargs["name"] = name
+        super().__init__(*args, **kwargs)
+        self.params = params
+        if params:
+            self.channels = params.model.arch.channels
+            self.joints = params.dataset.graph.skeleton.number_of_joints
+            self.window = params.model.arch.window
+        else:
+            self.channels = 16
+            self.joints = 17
+            self.window = 3
+        self.features_out = 10
+        self.dropout_rate = 0.2
+
+        self.spatial_encoder = tf.keras.Sequential([
+            layers.ConvolutionBlock(self.channels, 1, dropout_rate=self.dropout_rate),
+            layers.Residual(layers.ConvolutionBlock(self.channels, 1, dropout_rate=self.dropout_rate))
+        ], name=f"{self.name}.spatial_encoder")
+
+        self.temporal_encoder = tf.keras.Sequential([
+            layers.ConvolutionBlock(self.channels, self.window, dropout_rate=self.dropout_rate),
+            layers.Residual(
+                layers.ConvolutionBlock(self.channels, self.window, dropout_rate=self.dropout_rate)
+            ),
+            layers.ConvolutionBlock(self.channels, 1, dropout_rate=self.dropout_rate)
+        ], name=f"{self.name}.temporal_encoder")
+        self.regression = tf.keras.Sequential([
+            tf.keras.layers.BatchNormalization(),
+            layers.AdaptiveAvgPool(1),
+            tf.keras.layers.Conv1D(self.features_out, 1)
+        ], name=f"{self.name}.regression")
+
+    def call(self, inputs, training=None, mask=None):
+        kwargs = {}
+        kwargs['training'] = training
+        kwargs['mask'] = mask
+        outputs = self.spatial_encoder(inputs)
+        outputs = self.temporal_encoder(outputs)
+        outputs = self.regression(outputs)
+        return outputs
