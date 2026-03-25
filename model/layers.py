@@ -27,7 +27,7 @@ class DeltaConverter(tf.keras.layers.Layer):
         super(DeltaConverter, self).__init__(**kwargs)
         self.features = features
         self.t = t
-        self.v = skel.num_of_joints
+        self.v = skel.get_num_of_joints()
         if l_mat is None:
             self.l_mat = tf.expand_dims(create_matrix_L(skel, t, sw, tw), 0)
         else:
@@ -70,7 +70,7 @@ class PoseSolver(tf.keras.layers.Layer):
         super(PoseSolver, self).__init__(**kwargs)
         self.features = features
         self.t = t
-        self.v = skel.num_of_joints
+        self.v = skel.get_num_of_joints()
         self.lgs = solvers.LaplacianGraphSolver(skel, self.t, constraints)
         self.smoother = tf.keras.layers.AveragePooling2D(pool_size=(3, 1), strides=1, padding="same")
 
@@ -134,21 +134,21 @@ class GraphConv(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         self.kernel = self.add_weight(
-            "kernel",
+            name="kernel",
             shape=(input_shape[-1], self.channels),
             initializer="random_normal",
             trainable=True,
         )
         if self.use_mapper:
             self.mapper = self.add_weight(
-                "element_wise_kernel",
+                name="element_wise_kernel",
                 shape=(self.channels, self.channels),
                 initializer="random_normal",
                 trainable=True,
             )
         if self.use_bias:
             self.bias = self.add_weight(
-                "bias",
+                name="bias",
                 shape=(self.channels,),
                 initializer="random_normal",
                 trainable=True,
@@ -204,10 +204,10 @@ class SkeletonGraphConv(tf.keras.layers.Layer):
             activation=None,
             **kwargs
     ):
-        super().__init__(trainable, **kwargs)
+        super().__init__(**kwargs)
         # self.skeleton = skel
-        self.joints = skel.num_of_joints
-        self.D = create_matrix_D(skel, 1, self.joints)
+        self.joints = skel.get_num_of_joints()
+        self.D = create_matrix_D(skel, 1)
         self.channels = channels
         self.channels_out = channels_out
         self.use_bias = use_bias
@@ -218,21 +218,21 @@ class SkeletonGraphConv(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         self.kernel = self.add_weight(
-            "kernel",
             shape=(input_shape[-1], self.channels),
+            name="kernel",
             initializer="random_normal",
             trainable=True,
         )
         self.tuner = self.add_weight(
-            "tuner",
+            name="tuner",
             shape=(self.channels, self.channels_out),
             initializer="random_normal",
             trainable=True,
         )
         if self.use_bias:
             self.bias = self.add_weight(
-                "bias",
                 shape=(self.channels_out,),
+                name="bias",
                 initializer="random_normal",
                 trainable=True,
             )
@@ -664,6 +664,7 @@ class AdaptiveAvgPool(tf.keras.layers.Layer):
                 "size": self.size
             }
         )
+        return config
 
 
 class AdaptiveMaxPool(tf.keras.layers.Layer):
@@ -687,6 +688,7 @@ class AdaptiveMaxPool(tf.keras.layers.Layer):
                 "size": self.size
             }
         )
+        return config
 
 
 class GraphFeedForward(tf.keras.layers.Layer):

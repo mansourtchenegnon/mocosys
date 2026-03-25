@@ -8,7 +8,7 @@ import pickle
 
 import tensorflow as tf
 from types import SimpleNamespace
-from utility.graph import laplacian, skeleton
+from model.graph import laplacian, skeleton
 from model import layers, models, ops
 import utility.tools as tools
 
@@ -51,12 +51,12 @@ class SkeletonConstraintsComputation(tf.Module):
         self.DU = tf.expand_dims(self.DU, axis=0)
         
         # arch = state['arch']
-        config = state['config']
+        config = self.params['config']
         self.skeleton_model = models.SkeletonModel(config)
         # self.skeleton_model = SkeletonModel()
         self.skeleton_model.build([None, None, 34])
         self.skeleton_model.load_weights(f"{resume}/weights.keras")
-        self.data_parameters = state['data_params']
+        self.data_parameters = self.params['data_params']
 
         # self.smoother = layer.SmoothingLayer(5)
 
@@ -191,7 +191,7 @@ class MoCoSys(tf.Module):
         self.motion_correction(tf.random.uniform((1, 27, 51)))
         self.motion_correction.load_weights(f"{mft_path}/weights.keras")
 
-        self.skeleton_correction = models.SkeletonConstraintsComputation(None, skm_path)
+        self.skeleton_correction = SkeletonConstraintsComputation(None, skm_path)
         
 
     def __call__(self, inputs):

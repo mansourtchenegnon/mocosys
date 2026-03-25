@@ -34,7 +34,7 @@ class MotionFineTuningModel(tf.keras.Model):
         for i in range(self.window):
             constraints[i * self.joints] = [0, 0, 0]
         self.pose_solver = layers.PoseSolver(self.skeleton, 3, self.window, constraints)
-        self.adj = matrix.normalized_matrix_A(self.skeleton, self.window, True)
+        self.adj = matrix.create_normalized_matrix_A(self.skeleton, self.window, True)
         self.delta_converter = layers.DeltaConverter(self.skeleton, 3, self.window, self.pose_solver.lgs.L)
         self.graph_conv_seq = tf.keras.Sequential([
             layers.GraphConv(self.channels,
