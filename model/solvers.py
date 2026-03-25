@@ -13,7 +13,8 @@ from model import ops
 
 class LaplacianGraphSolver:
     """A class to define and solve a Laplacian problem based on the graph 3D+t representation
-        of the motion.
+        of the motion. To reduce the complexity of the calculation, the 3D+t graph is built over
+        a fixed number of frames `T` (3 for example), and the resolution operates like a sliding window.
         
         Attributes
         ----------
@@ -21,10 +22,8 @@ class LaplacianGraphSolver:
             Sequence length.
         J : int
             Number of skeleton joints.
-        L : numpy.array
-            Represents the Laplacian matrix. L = I - D^{-1} * A.
-        Lc : numpy.array
-            Represents the constrained Laplacian matrix.
+        L : Tensor
+            Represents the Laplacian matrix. `L = I - D^{-1} * A`.
     """    
     def __init__(
             self,

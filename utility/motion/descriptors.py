@@ -2,7 +2,7 @@
 # -*- coding: unp.linalg-8 -*-
 """
 @author: Mansour Tchenegnon
-@version: 15.03.2025
+@version: 03.2025
 """
 
 # %% Imports

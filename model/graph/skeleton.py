@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 @author: Mansour Tchenegnon
-@version: 15.03.2025
+@version: 03.2025
 """
 
 # %% Imports
@@ -65,6 +65,12 @@ H36M_17_JOINTS_SKELETON_PARENTS = [-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 
 class SkeletonGraph:
 
     def __init__(self, num_of_joints, edges_pairs):
+        """Creates an instance of SkeletonGraph (undirected graph).
+
+        Args:
+            num_of_joints (int): The number of joints in the skeletal structure.
+            edges_pairs (list): A list of edges connecting the joints in the skeletal structure.
+        """
         self.__num_of_joints = num_of_joints
         self.__bones = edges_pairs
         self.__joints_incidence = [[] for _ in range(num_of_joints)]
@@ -84,6 +90,16 @@ class SkeletonGraph:
         return self.__num_of_joints
     
     def motion_graph_edges_pairs(self, seq_length : int):
+        """Returns a dictionary of spatial and temporal edges after construction of the
+        motion graph based on the skeletal structure and length of the motion. Edges are
+        represented as pairs `[i, j]`.
+
+        Args:
+            seq_length (int): The length of the motion sequence in number of frames.
+
+        Returns:
+            dict: A dictionary of both spatial and temporal edges of the motion graph.
+        """
         spatial_edges = []
         temporal_edges = []
         for t in range(0, seq_length):
@@ -99,6 +115,16 @@ class SkeletonGraph:
     
 
     def motion_graph_edges_list(self, seq_length : int):
+        """Returns a dictionary of spatial and temporal edges after construction of the
+        motion graph based on the skeletal structure and length of the motion. Edges are represented
+        per vertex with the list of adjacent vertices.
+
+        Args:
+            seq_length (int): _description_
+
+        Returns:
+            dict:  A dictionary of both spatial and temporal edges of the motion graph.
+        """
         spatial_edges = []
         temporal_edges = []
         for t in range(0, seq_length):

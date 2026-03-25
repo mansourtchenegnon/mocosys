@@ -29,7 +29,7 @@ ES = [
 scene.width = 1920
 scene.height = 1080
 scene.autoscale = True
-# scene.background = color.white
+scene.background = color.gray(0.5)
 # scene.autoscale = 0
 RADIUS = 20.0
 SCALE = 1.0
@@ -93,13 +93,29 @@ class Plot3DPoseVs:
         self.translation = vec(1000, 0, 0)
         self.color_1 = color.green
         self.color_2 = color.yellow
-        # self.joint_count = 17
+        self.joint_count = 17
         self.bone_count = 16
         self.frames = poses_1.shape[0]
         self.bones_1 = []
         self.bones_2 = []
+        self.joints_1 = []
+        self.joints_2 = []
 
+        self.make_joints()
         self.make_bones()
+
+    def make_joints(self):
+        for i in range(self.joint_count):
+            self.joints_1.append(sphere(
+                pos=self.get_position(0, i, 1),
+                radius=RADIUS + 5.0,
+                color=self.color_1
+            ))
+            self.joints_2.append(sphere(
+                pos=self.get_position(0, i, 2)  + self.translation,
+                radius=RADIUS + 5.0,
+                color=self.color_2
+            ))
 
     def make_bones(self):
         for i, j in ES:
@@ -122,6 +138,13 @@ class Plot3DPoseVs:
 
     def update(self, t):
         f = t % self.frames
+        # update joints
+        for index in range(self.joint_count):
+            joint = self.joints_1[index]
+            joint.pos = self.get_position(f, index, 1)
+            joint = self.joints_2[index]
+            joint.pos = self.get_position(f, index, 2) + self.translation
+        
         # update bones
         for index in range(self.bone_count):
             bone_1 = self.bones_1[index]

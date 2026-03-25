@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 @author: Mansour Tchenegnon
-@version: 15.03.2025
+@version: 03.2025
 """
 
 # %% Imports
@@ -25,6 +25,7 @@ class ConstraintType(Enum):
 
 def create_matrix_A(skeleton_graph : SkeletonGraph, sequence_length : int, plus_identity=False):
     """Computes the adjacency matrix **A** of a graph.
+    If `plus_identity` is `True`, then the matrix is `Ã = A + I`.
 
     Parameters
     ----------

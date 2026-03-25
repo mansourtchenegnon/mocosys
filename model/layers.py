@@ -5,7 +5,7 @@
 """
 # %% Imports
 import tensorflow as tf
-
+import keras 
 from model.graph.skeleton import SkeletonGraph
 from model.graph.laplacian import create_matrix_L, create_matrix_D
 from model import ops, solvers
@@ -22,7 +22,7 @@ def identity(x):
 
 # %% Custom Layers
 # @tf.keras.saving.register_keras_serializable()
-class DeltaConverter(tf.keras.layers.Layer):
+class DeltaConverter(keras.layers.Layer):
     def __init__(self, skel : SkeletonGraph, features, t, l_mat=None, sw=1.0, tw=1.0, **kwargs):
         super(DeltaConverter, self).__init__(**kwargs)
         self.features = features
@@ -65,14 +65,14 @@ class DeltaConverter(tf.keras.layers.Layer):
 
 
 # @tf.keras.saving.register_keras_serializable()
-class PoseSolver(tf.keras.layers.Layer):
+class PoseSolver(keras.layers.Layer):
     def __init__(self, skel : SkeletonGraph, features, t, constraints, l_mat=None, sw=1.0, tw=1.0, **kwargs):
         super(PoseSolver, self).__init__(**kwargs)
         self.features = features
         self.t = t
         self.v = skel.get_num_of_joints()
         self.lgs = solvers.LaplacianGraphSolver(skel, self.t, constraints)
-        self.smoother = tf.keras.layers.AveragePooling2D(pool_size=(3, 1), strides=1, padding="same")
+        self.smoother = keras.layers.AveragePooling2D(pool_size=(3, 1), strides=1, padding="same")
 
     def call(self, inputs, gamma=None, *args, **kwargs):
         """
@@ -109,7 +109,7 @@ class PoseSolver(tf.keras.layers.Layer):
 
 # %% Graph convolution layer
 # @tf.keras.saving.register_keras_serializable()
-class GraphConv(tf.keras.layers.Layer):
+class GraphConv(keras.layers.Layer):
     def __init__(
             self,
             channels,
@@ -127,6 +127,7 @@ class GraphConv(tf.keras.layers.Layer):
         self.use_bias = use_bias
         self.use_mapper = use_mapper
         self.residual = residual
+        self.trainable = trainable
         self.kernel = None
         self.bias = None
         self.mapper = None

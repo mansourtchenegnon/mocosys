@@ -9,6 +9,7 @@ import numpy as np
 
 from utility.datasets.h36m_dataset import Human36mDataset, Human36mDatasetGenerator
 
+# To change to the folder where your .npz files are
 LOCATION = '/home/mansour/Workspace/data/human36m'
 KEYPOINT_TYPE = {
     'cpn': 'cpn_ft_h36m_dbb',
@@ -18,7 +19,7 @@ KEYPOINT_TYPE = {
 
 class Human36mSotaDataset:
     def __init__(self, training_set=True, estimation="aanet", location=LOCATION,
-                 chunk_size=0, keypoints="gt"):
+                 chunk_size=0, keypoints="gt", fused=False):
         """ Initialises human36m dataset for motion correction.
 
         Parameters
@@ -35,11 +36,14 @@ class Human36mSotaDataset:
             is None.
         keypoints: str, optional
             Type of 2D inputs keypoints. "gt" or "cpn".
+        fused: bool, optional
+            Tells whether to fuse the features and the joints of not
 
         """
         self.sequence_index = None
         self._training_set = training_set
         self._chunk_size = chunk_size
+        self._fused = fused
         if training_set:
             filename = f'{location}/{estimation}_{keypoints}_train.npz'
         else:
@@ -51,13 +55,14 @@ class Human36mSotaDataset:
         self._video_names = contents["names"]
         self._inputs = np.concatenate(contents["inputs"], axis=0)
         self._total_frames = self._inputs.shape[0]
-        # self._inputs = np.reshape(self._inputs, (total_frames, -1))
         # input between [0, 1]
         self._inputs = (self._inputs + 1.) / 2.
-        ## root related inputs
+        # root related inputs
         # self.inputs = self.inputs - np.tile(self.inputs[:, :2], [1, int(self.inputs.shape[-1] / 2)])
-        # self._estimations = np.reshape(self._estimations, (self._total_frames, -1))
-        # self._targets = np.reshape(self._targets, (self._total_frames, -1))
+        if self._fused:
+            self._inputs = np.reshape(self._inputs, (self._total_frames, -1))
+            self._estimations = np.reshape(self._estimations, (self._total_frames, -1))
+            self._targets = np.reshape(self._targets, (self._total_frames, -1))
         self._cut_names = []
 
         self._frame_numbers = list(contents["frame_numbers"])
@@ -113,7 +118,16 @@ class Human36mSotaDataset:
         return [0.0], [0.0]
 
     def dataset(self):
-        ds = tf.data.Dataset.from_generator(self.__generator__,
+        if self._fused:
+            ds = tf.data.Dataset.from_generator(self.__generator__,
+                                                output_signature=(
+                                                    tf.TensorSpec(shape=(None, 34), dtype=tf.float32),
+                                                    tf.TensorSpec(shape=(None, 51), dtype=tf.float32),
+                                                    tf.TensorSpec(shape=(None, 51), dtype=tf.float32),
+                                                    tf.TensorSpec(shape=(), dtype=tf.string))
+                                                )
+        else:
+            ds = tf.data.Dataset.from_generator(self.__generator__,
                                                 output_signature=(
                                                     tf.TensorSpec(shape=(None, 17, 2), dtype=tf.float32),
                                                     tf.TensorSpec(shape=(None, 17, 3), dtype=tf.float32),
@@ -124,8 +138,8 @@ class Human36mSotaDataset:
     
 
 class Human36mSotaDatasetLoader:
-    def __init__(self, training_set=True, estimation="aanet", location=LOCATION, batch_size=1, chunk_size=0, keypoints="gt"):
-        datas = Human36mSotaDataset(training_set, estimation, location, chunk_size, keypoints)
+    def __init__(self, training_set=True, estimation="aanet", location=LOCATION, batch_size=1, chunk_size=0, keypoints="gt", fused=False):
+        datas = Human36mSotaDataset(training_set, estimation, location, chunk_size, keypoints, fused)
         self._total_frames = datas.get_frame_count()
         self._dataset, self.parameters, self._size = datas.dataset()
         self._dataset = self._dataset.batch(batch_size)
@@ -206,12 +220,22 @@ class Human36mDatasetLoader:
                 yield self.__getitem__(i)
                 i += 1
 
-        def generate_dataset(self):
+        def generate_dataset_with_seperated_joints_features(self):
             ds = tf.data.Dataset.from_generator(
                 self.__generator__,
                 output_signature=(
                     tf.TensorSpec(shape=(None, 17, 2), dtype=tf.float32),
                     tf.TensorSpec(shape=(None, 17, 3), dtype=tf.float32),
+                    tf.TensorSpec(shape=(), dtype=tf.string))
+                )
+            return ds
+        
+        def generate_dataset_with_fused_joints_features(self):
+            ds = tf.data.Dataset.from_generator(
+                self.__generator__,
+                output_signature=(
+                    tf.TensorSpec(shape=(None, 34), dtype=tf.float32),
+                    tf.TensorSpec(shape=(None, 51), dtype=tf.float32),
                     tf.TensorSpec(shape=(), dtype=tf.string))
                 )
             return ds
