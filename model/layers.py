@@ -4,12 +4,12 @@
 @author: mansour
 """
 # %% Imports
-import tensorflow as tf
 import keras 
 from model.graph.skeleton import SkeletonGraph
 from model.graph.laplacian import create_matrix_L, create_matrix_D
 from model import ops, solvers
 
+SEED = 97
 
 # %% Simple functions
 def zero(x):
@@ -21,7 +21,7 @@ def identity(x):
 
 
 # %% Custom Layers
-# @tf.keras.saving.register_keras_serializable()
+# @keras.saving.register_keras_serializable()
 class DeltaConverter(keras.layers.Layer):
     def __init__(self, skel : SkeletonGraph, features, t, l_mat=None, sw=1.0, tw=1.0, **kwargs):
         super(DeltaConverter, self).__init__(**kwargs)
@@ -29,7 +29,7 @@ class DeltaConverter(keras.layers.Layer):
         self.t = t
         self.v = skel.get_num_of_joints()
         if l_mat is None:
-            self.l_mat = tf.expand_dims(create_matrix_L(skel, t, sw, tw), 0)
+            self.l_mat = keras.ops.expand_dims(create_matrix_L(skel, t, sw, tw), 0)
         else:
             self.l_mat = l_mat
 
@@ -39,13 +39,16 @@ class DeltaConverter(keras.layers.Layer):
 
         Args:
             inputs (Tensor): Represents the 3D joint positions.
-                It is a 3+D tensor with shape `(B, T, V*C)`.
+                It is a 3+D tensor with shape `(..., T, V, C)`.
             kwargs (dict): A dictionary of others parameters
 
         Returns:
-            outputs (Tensor): A 4+D tensor with shape `(B, T, W*V, C)`.
+            outputs (Tensor): A 3+D tensor with shape `(..., T, W*V, C)` or `(..., T, V, C)`.
         """
-        outputs = ops.format_inputs(inputs, self.t)
+        if "format" in kwargs and kwargs["format"] is True:
+            outputs = ops.format_inputs(inputs, self.t)
+        else:
+            outputs = inputs
         outputs = self.l_mat @ outputs
         if "keepdims" in kwargs and kwargs["keepdims"] is True:
             center = self.t // 2
@@ -64,7 +67,7 @@ class DeltaConverter(keras.layers.Layer):
         return config
 
 
-# @tf.keras.saving.register_keras_serializable()
+# @keras.saving.register_keras_serializable()
 class PoseSolver(keras.layers.Layer):
     def __init__(self, skel : SkeletonGraph, features, t, constraints, l_mat=None, sw=1.0, tw=1.0, **kwargs):
         super(PoseSolver, self).__init__(**kwargs)
@@ -74,13 +77,12 @@ class PoseSolver(keras.layers.Layer):
         self.lgs = solvers.LaplacianGraphSolver(skel, self.t, constraints)
         self.smoother = keras.layers.AveragePooling2D(pool_size=(3, 1), strides=1, padding="same")
 
-    def call(self, inputs, gamma=None, *args, **kwargs):
+    def call(self, inputs, *args, **kwargs):
         """
         Converts Δ to P using Cholesky resolution.
 
         Args:
-            inputs (Tensor): Represents the 3D joint differential coordinates Δ.
-                It is a 4+D tensor with shape `(B, T, W*V, C)`.
+            inputs (Tensor): Represents the 3D joint differential coordinates Δ. It is a 4+D tensor with shape `(B, T, W*V, C)`.
             gamma (Tensor): A 4+D tensor representing the constraints on Es segments.
             *args:
             **kwargs:
@@ -88,12 +90,16 @@ class PoseSolver(keras.layers.Layer):
         Returns:
             outputs (Tensor): A 4+D tensor with shape `(B, T, V, C)`.
         """
-        outputs = self.lgs.solve(inputs, gamma)
+        outputs = self.lgs.solve(inputs)
         # retrieve central frames
         center = self.t // 2
         outputs = outputs[:, :, center * self.v:center * self.v + self.v, :]
         outputs = self.smoother(outputs)
         return outputs
+    
+    def set_constraints(self, vec_u, vec_gamma):
+        self.lgs.set_positional_constraints(vec_u)
+        self.lgs.set_distance_constraints(vec_gamma)
 
     def get_config(self):
         config = super().get_config()
@@ -108,7 +114,6 @@ class PoseSolver(keras.layers.Layer):
 
 
 # %% Graph convolution layer
-# @tf.keras.saving.register_keras_serializable()
 class GraphConv(keras.layers.Layer):
     def __init__(
             self,
@@ -131,7 +136,7 @@ class GraphConv(keras.layers.Layer):
         self.kernel = None
         self.bias = None
         self.mapper = None
-        self.activation = tf.keras.activations.get(activation)
+        self.activation = keras.activations.get(activation)
 
     def build(self, input_shape):
         self.kernel = self.add_weight(
@@ -165,11 +170,11 @@ class GraphConv(keras.layers.Layer):
             self.A.shape, inputs.shape
         )
 
-        outputs = tf.matmul(inputs, self.kernel)
+        outputs = keras.ops.matmul(inputs, self.kernel)
         if self.use_mapper:
-            outputs = tf.matmul(outputs, self.mapper)
+            outputs = keras.ops.matmul(outputs, self.mapper)
 
-        outputs = tf.matmul(self.A, outputs)
+        outputs = keras.ops.matmul(self.A, outputs)
         outputs = self.activation(outputs)
 
         if self.use_bias:
@@ -184,17 +189,18 @@ class GraphConv(keras.layers.Layer):
         config.update(
             {
                 "channels": self.channels,
-                "activation": tf.keras.activations.serialize(self.activation),
+                "activation": keras.activations.serialize(self.activation),
                 "use_bias": self.use_bias,
                 "use_mapper": self.use_mapper,
-                "residual": self.residual
+                "residual": self.residual,
+                "trainable": self.trainable
             }
         )
         return config
 
 
-# @tf.keras.saving.register_keras_serializable()
-class SkeletonGraphConv(tf.keras.layers.Layer):
+# @keras.saving.register_keras_serializable()
+class SkeletonGraphConv(keras.layers.Layer):
     def __init__(
             self,
             skel : SkeletonGraph,
@@ -212,10 +218,11 @@ class SkeletonGraphConv(tf.keras.layers.Layer):
         self.channels = channels
         self.channels_out = channels_out
         self.use_bias = use_bias
+        self.trainable = trainable
         self.kernel = None
         self.tuner = None
         self.bias = None
-        self.activation = tf.keras.activations.get(activation)
+        self.activation = keras.activations.get(activation)
 
     def build(self, input_shape):
         self.kernel = self.add_weight(
@@ -246,9 +253,9 @@ class SkeletonGraphConv(tf.keras.layers.Layer):
             self.D.shape, inputs.shape
         )
 
-        outputs = tf.matmul(inputs, self.kernel)
-        outputs = tf.matmul(outputs, self.tuner)
-        outputs = tf.matmul(self.D, outputs)
+        outputs = keras.ops.matmul(inputs, self.kernel)
+        outputs = keras.ops.matmul(outputs, self.tuner)
+        outputs = keras.ops.matmul(self.D, outputs)
         outputs = self.activation(outputs)
 
         if self.use_bias:
@@ -261,25 +268,26 @@ class SkeletonGraphConv(tf.keras.layers.Layer):
         config.update(
             {
                 "channels": self.channels,
-                "activation": tf.keras.activations.serialize(self.activation),
+                "activation": keras.activations.serialize(self.activation),
                 "use_bias": self.use_bias,
-                "joints": self.joints
+                "joints": self.joints,
+                "trainable": self.trainable
             }
         )
         return config
 
 
-class SkeletonSymmetrisationLayer(tf.keras.layers.Layer):
+class SkeletonSymmetrisationLayer(keras.layers.Layer):
 
     def __init__(self, op_type="avg", **kwargs):
         super().__init__(**kwargs)
         self.op_type = op_type
         if op_type == "max":
-            self.unifier = tf.keras.layers.Maximum()
+            self.unifier = keras.layers.Maximum()
         elif op_type == "min":
-            self.unifier = tf.keras.layers.Minimum()
+            self.unifier = keras.layers.Minimum()
         else:
-            self.unifier = tf.keras.layers.Average()
+            self.unifier = keras.layers.Average()
 
     def call(self, inputs, *args, **kwargs):
         hips = self.unifier([inputs[:, :, 0:1], inputs[:, :, 3:4]])
@@ -292,36 +300,25 @@ class SkeletonSymmetrisationLayer(tf.keras.layers.Layer):
         clavicle = self.unifier([inputs[:, :, 10:11], inputs[:, :, 13:14]])
         humerus = self.unifier([inputs[:, :, 11:12], inputs[:, :, 14:15]])
         radius = self.unifier([inputs[:, :, 12:13], inputs[:, :, 15:16]])
-        outputs = tf.concat((
-            hips,
-            femur,
-            tibia,
-            hips,
-            femur,
-            tibia,
-            spine_back,
-            spine_top,
-            neck,
-            head,
-            clavicle,
-            humerus,
-            radius,
-            clavicle,
-            humerus,
-            radius
+        outputs = keras.ops.concatenate((
+            hips, femur, tibia,
+            hips, femur, tibia,
+            spine_back, spine_top, neck, head,
+            clavicle, humerus, radius,
+            clavicle, humerus, radius
         ),
             axis=-1)
 
         return outputs
 
 
-class PosesToSkeletonLayer(tf.keras.layers.Layer):
+class PosesToSkeletonLayer(keras.layers.Layer):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     def call(self, inputs, *args, **kwargs):
-        shape = tf.shape(inputs)
+        shape = keras.ops.shape(inputs)
         batch, length, joints, _ = shape
         hips_right = inputs[:, :, 0, :] - inputs[:, :, 1, :]
         femur_right = inputs[:, :, 1, :] - inputs[:, :, 2, :]
@@ -344,36 +341,26 @@ class PosesToSkeletonLayer(tf.keras.layers.Layer):
         humerus_right = inputs[:, :, 14, :] - inputs[:, :, 15, :]
         radius_right = inputs[:, :, 15, :] - inputs[:, :, 16, :]
 
-        skeleton = tf.concat((hips_right,
-                              femur_right,
-                              tibia_right,
-                              hips_left,
-                              femur_left,
-                              tibia_left,
-                              spine_back,
-                              spine_top,
-                              neck,
-                              head,
-                              clavicle_left,
-                              humerus_left,
-                              radius_left,
-                              clavicle_right,
-                              humerus_right,
-                              radius_right
-                              ), axis=-1)
+        skeleton = keras.ops.concatenate((
+            hips_right, femur_right, tibia_right,
+            hips_left, femur_left, tibia_left,
+            spine_back, spine_top, neck, head,
+            clavicle_left, humerus_left, radius_left,
+            clavicle_right, humerus_right, radius_right
+            ), axis=-1)
 
-        skeleton = tf.reshape(skeleton, [batch, length, joints - 1, -1])
+        skeleton = keras.ops.reshape(skeleton, [batch, length, joints - 1, -1])
         return skeleton
 
 
-# @tf.keras.saving.register_keras_serializable()
-class SkeletonAdjustementLayer(tf.keras.layers.Layer):
+# @keras.saving.register_keras_serializable()
+class SkeletonAdjustementLayer(keras.layers.Layer):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     def call(self, inputs, *args, **kwargs):
-        batch, length, joints, _ = tf.shape(inputs)
+        batch, length, joints, _ = keras.ops.shape(inputs)
         hips_right = inputs[:, :, 0, :] - inputs[:, :, 1, :]
         femur_right = inputs[:, :, 1, :] - inputs[:, :, 2, :]
         tibia_right = inputs[:, :, 2, :] - inputs[:, :, 3, :]
@@ -395,62 +382,52 @@ class SkeletonAdjustementLayer(tf.keras.layers.Layer):
         humerus_right = inputs[:, :, 14, :] - inputs[:, :, 15, :]
         radius_right = inputs[:, :, 15, :] - inputs[:, :, 16, :]
 
-        hips_norm = (tf.norm(hips_left, axis=-1, keepdims=True) + tf.norm(hips_right, axis=-1, keepdims=True)) / 2
-        hips_norm = tf.reduce_max(hips_norm, axis=1, keepdims=True)
-        femur_norm = (tf.norm(femur_left, axis=-1, keepdims=True) + tf.norm(femur_right, axis=-1, keepdims=True)) / 2
-        femur_norm = tf.reduce_max(femur_norm, axis=1, keepdims=True)
-        tibia_norm = (tf.norm(tibia_left, axis=-1, keepdims=True) + tf.norm(tibia_right, axis=-1, keepdims=True)) / 2
-        tibia_norm = tf.reduce_max(tibia_norm, axis=1, keepdims=True)
-        clavicle_norm = (tf.norm(clavicle_left, axis=-1, keepdims=True) + tf.norm(clavicle_right, axis=-1,
+        hips_norm = (keras.ops.norm(hips_left, axis=-1, keepdims=True) + keras.ops.norm(hips_right, axis=-1, keepdims=True)) / 2
+        hips_norm = keras.ops.max(hips_norm, axis=1, keepdims=True)
+        femur_norm = (keras.ops.norm(femur_left, axis=-1, keepdims=True) + keras.ops.norm(femur_right, axis=-1, keepdims=True)) / 2
+        femur_norm = keras.ops.max(femur_norm, axis=1, keepdims=True)
+        tibia_norm = (keras.ops.norm(tibia_left, axis=-1, keepdims=True) + keras.ops.norm(tibia_right, axis=-1, keepdims=True)) / 2
+        tibia_norm = keras.ops.max(tibia_norm, axis=1, keepdims=True)
+        clavicle_norm = (keras.ops.norm(clavicle_left, axis=-1, keepdims=True) + keras.ops.norm(clavicle_right, axis=-1,
                                                                                   keepdims=True)) / 2
-        clavicle_norm = tf.reduce_max(clavicle_norm, axis=1, keepdims=True)
-        humerus_norm = (tf.norm(humerus_left, axis=-1, keepdims=True) + tf.norm(humerus_right, axis=-1,
+        clavicle_norm = keras.ops.max(clavicle_norm, axis=1, keepdims=True)
+        humerus_norm = (keras.ops.norm(humerus_left, axis=-1, keepdims=True) + keras.ops.norm(humerus_right, axis=-1,
                                                                                 keepdims=True)) / 2
-        humerus_norm = tf.reduce_max(humerus_norm, axis=1, keepdims=True)
-        radius_norm = (tf.norm(radius_left, axis=-1, keepdims=True) + tf.norm(radius_right, axis=-1, keepdims=True)) / 2
-        radius_norm = tf.reduce_max(radius_norm, axis=1, keepdims=True)
+        humerus_norm = keras.ops.max(humerus_norm, axis=1, keepdims=True)
+        radius_norm = (keras.ops.norm(radius_left, axis=-1, keepdims=True) + keras.ops.norm(radius_right, axis=-1, keepdims=True)) / 2
+        radius_norm = keras.ops.max(radius_norm, axis=1, keepdims=True)
 
-        spine_back_norm = tf.reduce_max(tf.norm(spine_back, axis=-1, keepdims=True), axis=1, keepdims=True)
-        spine_top_norm = tf.reduce_max(tf.norm(spine_top, axis=-1, keepdims=True), axis=1, keepdims=True)
-        neck_norm = tf.reduce_max(tf.norm(neck, axis=-1, keepdims=True), axis=1, keepdims=True)
-        head_norm = tf.reduce_max(tf.norm(head, axis=-1, keepdims=True), axis=1, keepdims=True)
+        spine_back_norm = keras.ops.max(keras.ops.norm(spine_back, axis=-1, keepdims=True), axis=1, keepdims=True)
+        spine_top_norm = keras.ops.max(keras.ops.norm(spine_top, axis=-1, keepdims=True), axis=1, keepdims=True)
+        neck_norm = keras.ops.max(keras.ops.norm(neck, axis=-1, keepdims=True), axis=1, keepdims=True)
+        head_norm = keras.ops.max(keras.ops.norm(head, axis=-1, keepdims=True), axis=1, keepdims=True)
 
-        hips_right = (hips_norm / tf.norm(hips_right, axis=-1, keepdims=True)) * hips_right
-        hips_left = (hips_norm / tf.norm(hips_left, axis=-1, keepdims=True)) * hips_left
-        femur_right = (femur_norm / tf.norm(femur_right, axis=-1, keepdims=True)) * femur_right
-        femur_left = (femur_norm / tf.norm(femur_left, axis=-1, keepdims=True)) * femur_left
-        tibia_left = (tibia_norm / tf.norm(tibia_left, axis=-1, keepdims=True)) * tibia_left
-        tibia_right = (tibia_norm / tf.norm(tibia_right, axis=-1, keepdims=True)) * tibia_right
-        spine_back = (spine_back_norm / tf.norm(spine_back, axis=-1, keepdims=True)) * spine_back
-        spine_top = (spine_top_norm / tf.norm(spine_top, axis=-1, keepdims=True)) * spine_top
-        neck = (neck_norm / tf.norm(neck, axis=-1, keepdims=True)) * neck
-        head = (head_norm / tf.norm(head, axis=-1, keepdims=True)) * head
-        clavicle_left = (clavicle_norm / tf.norm(clavicle_left, axis=-1, keepdims=True)) * clavicle_left
-        clavicle_right = (clavicle_norm / tf.norm(clavicle_right, axis=-1, keepdims=True)) * clavicle_right
-        humerus_left = (humerus_norm / tf.norm(humerus_left, axis=-1, keepdims=True)) * humerus_left
-        humerus_right = (humerus_norm / tf.norm(humerus_right, axis=-1, keepdims=True)) * humerus_right
-        radius_left = (radius_norm / tf.norm(radius_left, axis=-1, keepdims=True)) * radius_left
-        radius_right = (radius_norm / tf.norm(radius_right, axis=-1, keepdims=True)) * radius_right
+        hips_right = (hips_norm / keras.ops.norm(hips_right, axis=-1, keepdims=True)) * hips_right
+        hips_left = (hips_norm / keras.ops.norm(hips_left, axis=-1, keepdims=True)) * hips_left
+        femur_right = (femur_norm / keras.ops.norm(femur_right, axis=-1, keepdims=True)) * femur_right
+        femur_left = (femur_norm / keras.ops.norm(femur_left, axis=-1, keepdims=True)) * femur_left
+        tibia_left = (tibia_norm / keras.ops.norm(tibia_left, axis=-1, keepdims=True)) * tibia_left
+        tibia_right = (tibia_norm / keras.ops.norm(tibia_right, axis=-1, keepdims=True)) * tibia_right
+        spine_back = (spine_back_norm / keras.ops.norm(spine_back, axis=-1, keepdims=True)) * spine_back
+        spine_top = (spine_top_norm / keras.ops.norm(spine_top, axis=-1, keepdims=True)) * spine_top
+        neck = (neck_norm / keras.ops.norm(neck, axis=-1, keepdims=True)) * neck
+        head = (head_norm / keras.ops.norm(head, axis=-1, keepdims=True)) * head
+        clavicle_left = (clavicle_norm / keras.ops.norm(clavicle_left, axis=-1, keepdims=True)) * clavicle_left
+        clavicle_right = (clavicle_norm / keras.ops.norm(clavicle_right, axis=-1, keepdims=True)) * clavicle_right
+        humerus_left = (humerus_norm / keras.ops.norm(humerus_left, axis=-1, keepdims=True)) * humerus_left
+        humerus_right = (humerus_norm / keras.ops.norm(humerus_right, axis=-1, keepdims=True)) * humerus_right
+        radius_left = (radius_norm / keras.ops.norm(radius_left, axis=-1, keepdims=True)) * radius_left
+        radius_right = (radius_norm / keras.ops.norm(radius_right, axis=-1, keepdims=True)) * radius_right
 
-        skeleton = tf.concat((hips_right,
-                              femur_right,
-                              tibia_right,
-                              hips_left,
-                              femur_left,
-                              tibia_left,
-                              spine_back,
-                              spine_top,
-                              neck,
-                              head,
-                              clavicle_left,
-                              humerus_left,
-                              radius_left,
-                              clavicle_right,
-                              humerus_right,
-                              radius_right
-                              ), axis=-1)
+        skeleton = keras.ops.concatenate((
+            hips_right, femur_right, tibia_right,
+            hips_left, femur_left, tibia_left,
+            spine_back, spine_top, neck, head,
+            clavicle_left, humerus_left, radius_left,
+            clavicle_right, humerus_right, radius_right
+            ), axis=-1)
 
-        skeleton = tf.reshape(skeleton, [batch, length, joints - 1, -1])
+        skeleton = keras.ops.reshape(skeleton, [batch, length, joints - 1, -1])
         return skeleton
 
     def get_config(self):
@@ -459,40 +436,42 @@ class SkeletonAdjustementLayer(tf.keras.layers.Layer):
 
 
 # %% Sampling layer
-class Sampling(tf.keras.layers.Layer):
-    """Uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
+class Sampling(keras.layers.Layer):
+    """A sampling layer that uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
 
-    def call(self, inputs, *args, **kwargs):
+    def __init__(self, seed=SEED, **kwargs):
+        super().__init__(**kwargs)
+        self.seed = seed
+
+    def call(self, inputs):
         z_mean, z_log_var = inputs
-        shape = tf.shape(z_mean)
-        if len(shape) == 2:
-            batch = shape[0]
-            dim = shape[1]
-            epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
-        elif len(shape) == 3:
-            batch = shape[0]
-            steps = shape[1]
-            dim = shape[2]
-            epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
-            epsilon = tf.expand_dims(epsilon, axis=1)
-            epsilon = tf.tile(epsilon, [1, steps, 1])
-        else:
-            raise ValueError('Unsupported Case!')
-        return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+        batch = keras.ops.shape(z_mean)[0]
+        steps = keras.ops.shape(z_mean)[1]
+        dim = keras.ops.shape(z_mean)[2]
+        epsilon = keras.random.normal(shape=(batch, dim), seed=self.seed)
+        epsilon = keras.ops.expand_dims(epsilon, axis=1)
+        epsilon = keras.ops.tile(epsilon, [1, steps, 1])
+        return z_mean + keras.ops.exp(0.5 * z_log_var) * epsilon
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "seed": self.seed
+        })
 
 
-class Projection(tf.keras.layers.Layer):
+class Projection(keras.layers.Layer):
     def __init__(self, direction, **kwargs):
         super().__init__(**kwargs)
         self.direction = direction
 
     def call(self, inputs, *args, **kwargs):
-        output = tf.einsum('b t j c, ...c -> b t j', inputs, self.direction) / tf.norm(self.direction)
-        return tf.expand_dims(output, axis=-1)
+        output = keras.ops.einsum('b t j c, ...c -> b t j', inputs, self.direction) / keras.ops.norm(self.direction)
+        return keras.ops.expand_dims(output, axis=-1)
 
 
-# @tf.keras.saving.register_keras_serializable()
-class Residual(tf.keras.layers.Layer):
+# @keras.saving.register_keras_serializable()
+class Residual(keras.layers.Layer):
     def __init__(self, op, **kwargs):
         super().__init__(**kwargs)
         self.op = op
@@ -505,18 +484,18 @@ class Residual(tf.keras.layers.Layer):
         return config
 
 
-# @tf.keras.saving.register_keras_serializable()
-class SkeletonSimplificationLayer(tf.keras.layers.Layer):
+# @keras.saving.register_keras_serializable()
+class SkeletonSimplificationLayer(keras.layers.Layer):
 
     def __init__(self, op_type="avg", **kwargs):
         super().__init__(**kwargs)
         self.op_type = op_type
         if op_type == "max":
-            self.unifier = tf.keras.layers.Maximum()
+            self.unifier = keras.layers.Maximum()
         elif op_type == "min":
-            self.unifier = tf.keras.layers.Minimum()
+            self.unifier = keras.layers.Minimum()
         else:
-            self.unifier = tf.keras.layers.Average()
+            self.unifier = keras.layers.Average()
 
     def call(self, inputs, *args, **kwargs):
         hips = self.unifier([inputs[:, :, 0:1], inputs[:, :, 3:4]])
@@ -529,17 +508,10 @@ class SkeletonSimplificationLayer(tf.keras.layers.Layer):
         clavicle = self.unifier([inputs[:, :, 10:11], inputs[:, :, 13:14]])
         humerus = self.unifier([inputs[:, :, 11:12], inputs[:, :, 14:15]])
         radius = self.unifier([inputs[:, :, 12:13], inputs[:, :, 15:16]])
-        outputs = tf.concat((
-            hips,
-            femur,
-            tibia,
-            spine_back,
-            spine_top,
-            neck,
-            head,
-            clavicle,
-            humerus,
-            radius
+        outputs = keras.ops.concatenate((
+            hips, femur, tibia,
+            spine_back, spine_top, neck, head,
+            clavicle, humerus, radius
         ),
             axis=-1)
 
@@ -555,20 +527,19 @@ class SkeletonSimplificationLayer(tf.keras.layers.Layer):
         return config
 
 
-# @tf.keras.saving.register_keras_serializable()
-class ConvolutionBlock(tf.keras.layers.Layer):
+# @keras.saving.register_keras_serializable()
+class ConvolutionBlock(keras.layers.Layer):
     def __init__(self, channels, kernel_size, strides=1,
                  padding="SAME", normalize=False, dropout_rate=None, **kwargs):
         super().__init__(**kwargs)
-        self.conv = tf.keras.layers.Conv1D(channels, kernel_size, strides, padding)
+        self.conv = keras.layers.Conv1D(channels, kernel_size, strides, padding)
         if normalize:
-            self.norm = tf.keras.layers.BatchNormalization()
+            self.norm = keras.layers.BatchNormalization()
         else:
             self.norm = None
-        self.activation = tf.keras.layers.LeakyReLU(alpha=0.01)
-        # self.activation = tf.keras.activations.relu
+        self.activation = keras.layers.LeakyReLU(alpha=0.01)
         if dropout_rate:
-            self.dropout = tf.keras.layers.Dropout(dropout_rate)
+            self.dropout = keras.layers.Dropout(dropout_rate)
         else:
             self.dropout = None
 
@@ -597,25 +568,24 @@ class ConvolutionBlock(tf.keras.layers.Layer):
                 "dropout_rate": self.dropout_rate,
                 "strides": self.strides,
                 "padding": self.padding,
-                "activation": tf.keras.activations.serialize(self.activation),
+                "activation": keras.activations.serialize(self.activation),
             }
         )
         return config
 
 
-# @tf.keras.saving.register_keras_serializable()
-class DenseBlock(tf.keras.layers.Layer):
+class DenseBlock(keras.layers.Layer):
     def __init__(self, units, normalize=False, dropout_rate=None, **kwargs):
         super().__init__(**kwargs)
-        self.linear = tf.keras.layers.Dense(units)
+        self.linear = keras.layers.Dense(units)
         if normalize:
-            self.norm = tf.keras.layers.BatchNormalization()
+            self.norm = keras.layers.BatchNormalization()
         else:
             self.norm = None
-        self.activation = tf.keras.layers.LeakyReLU(alpha=0.01)
-        # self.activation = tf.keras.activations.relu
+        self.activation = keras.layers.LeakyReLU(alpha=0.01)
+        # self.activation = keras.activations.relu
         if dropout_rate:
-            self.dropout = tf.keras.layers.Dropout(dropout_rate)
+            self.dropout = keras.layers.Dropout(dropout_rate)
         else:
             self.dropout = None
         self.units = units
@@ -637,22 +607,20 @@ class DenseBlock(tf.keras.layers.Layer):
                 "units": self.units,
                 "normalise": self.normalise,
                 "dropout_rate": self.dropout_rate,
-                "activation": tf.keras.activations.serialize(self.activation),
+                "activation": keras.activations.serialize(self.activation),
             }
         )
         return config
 
 
-# @tf.keras.saving.register_keras_serializable()
-class AdaptiveAvgPool(tf.keras.layers.Layer):
+class AdaptiveAvgPool(keras.layers.Layer):
     def __init__(self, size, **kwargs):
         super().__init__(**kwargs)
         self.size = size
         if size == 1:
-            self.pool = tf.keras.layers.GlobalAveragePooling1D(keepdims=True)
+            self.pool = keras.layers.GlobalAveragePooling1D(keepdims=True)
         else:
-            # self.pool = tf.nn.avg_pool1d()
-            self.pool = tf.keras.layers.AveragePooling1D(size)
+            self.pool = keras.layers.AveragePooling1D(size)
 
     def call(self, inputs, *args, **kwargs):
         outputs = self.pool(inputs)
@@ -668,15 +636,14 @@ class AdaptiveAvgPool(tf.keras.layers.Layer):
         return config
 
 
-class AdaptiveMaxPool(tf.keras.layers.Layer):
+class AdaptiveMaxPool(keras.layers.Layer):
     def __init__(self, size, **kwargs):
         super().__init__(**kwargs)
         self.size = size
         if size == 1:
-            self.pool = tf.keras.layers.GlobalMaxPool1D(keepdims=True)
+            self.pool = keras.layers.GlobalMaxPool1D(keepdims=True)
         else:
-            # self.pool = tf.nn.avg_pool1d()
-            self.pool = tf.keras.layers.MaxPool1D(size)
+            self.pool = keras.layers.MaxPool1D(size)
 
     def call(self, inputs, *args, **kwargs):
         outputs = self.pool(inputs)
@@ -692,22 +659,22 @@ class AdaptiveMaxPool(tf.keras.layers.Layer):
         return config
 
 
-class GraphFeedForward(tf.keras.layers.Layer):
+class GraphFeedForward(keras.layers.Layer):
     def __init__(self, adj, dff, dim_out, dropout_rate=0.1,
                  activation='linear', **kwargs):
         super().__init__(**kwargs)
         if activation == 'relu':
-            self.activation = tf.keras.activations.relu
+            self.activation = keras.activations.relu
         elif activation == 'swish':
-            self.activation = tf.keras.activations.swish
+            self.activation = keras.activations.swish
         else:
-            self.activation = tf.keras.activations.linear
-        # self.seq = tf.keras.Sequential([
+            self.activation = keras.activations.linear
+        # self.seq = keras.Sequential([
         #     GraphConv(dff,
         #               adj,
         #               activation=self.activation,
         #               name=f"{self.name}.hidden_graph_conv"),
-        #     tf.keras.layers.Dropout(dropout_rate),
+        #     keras.layers.Dropout(dropout_rate),
         #     GraphConv(dim_out,
         #               adj,
         #               activation=self.activation,
@@ -721,9 +688,9 @@ class GraphFeedForward(tf.keras.layers.Layer):
                       adj,
                       activation=self.activation,
                       name=f"{self.name}.graph_conv_out")
-        self.drop = tf.keras.layers.Dropout(dropout_rate)
-        self.add = tf.keras.layers.Add()
-        self.layer_norm = tf.keras.layers.LayerNormalization()
+        self.drop = keras.layers.Dropout(dropout_rate)
+        self.add = keras.layers.Add()
+        self.layer_norm = keras.layers.LayerNormalization()
 
 
 def call(self, inputs, *args, **kwargs):

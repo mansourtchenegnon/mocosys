@@ -8,8 +8,13 @@
 import datetime
 import argparse
 import tensorflow as tf
+import keras.ops as kops
+from model.graph import skeleton
+from model.models import MotionFineTuningModel
+from model.solvers import DeltaConverter, PosesConverter
+from model import ops
 from utility import arguments
-from utility.datasets.loaders.h36m_dataloader import Human36mDatasetLoader, Human36mSotaDatasetLoader, get_bones, h36m_17_get_bones
+from utility.datasets.loaders.h36m_dataloader import Human36mDatasetLoader, Human36mSotaDatasetLoader
 
 # %% Arguments parsing and configuration
 def parse_args():
@@ -58,27 +63,46 @@ def get_config():
 
 # %% Test
 def test(config, args):
-    # Load dataset
+    ## Test dataset
     # h36m default data
     # dataset = Human36mDatasetLoader(training_set=False, batch_size=config.running.batch_size, keypoints="gt", chunk_size=243)
     # iterator = iter(dataset.get_dataset())
     # _, gt, _ = next(iterator)
     # h36m sota dataset
-    dataset = Human36mSotaDatasetLoader(training_set=False, batch_size=config.running.batch_size, keypoints="cpn", chunk_size=243, fused=False)
+    dataset = Human36mSotaDatasetLoader(
+        training_set=False,
+        batch_size=config.running.batch_size,
+        keypoints="cpn", chunk_size=243, fused=False,
+        location="data/human36m")
     iterator = iter(dataset.get_dataset())
     inp, est, gt, _ = next(iterator)
-    print("input", inp.shape)
-    print("estimation", est.shape)
-    print("gt", gt.shape)
+    # print("input", inp.shape)
+    # print("estimation", est.shape)
+    # print("gt", gt.shape)
     
-    from rendering import display, animation
+    ## Test pose and delta converter
+    skel = skeleton.SkeletonGraph(17, skeleton.H36M_17_JOINTS_SKELETON_BONES_PAIRS)
+    delta_converter = DeltaConverter(3, skel, 3)
+    pose_converter = PosesConverter(3, skel, 3, [0, 0, 0])
+    delta = delta_converter(gt, format=True, keepdims=True)
+    u = ops.format_inputs(gt[..., 0:1, :], 3)
+    vec = ops.vectorize(gt, 17, 3)
+    gamma = pose_converter.lgs.D @ vec
+    pose_converter.set_constraints(u, gamma)
+    pose = pose_converter(delta)
+    diff = kops.max(pose - gt)
+    print(diff)
+    
+    # from rendering import display, animation
     # display.generate_3d_animation(gt[0] * 1000, "sample")
     # animation.animate_motions_vs(gt[0] * 1000, est[0] * 1000)
     # animation.save_animate_motion(gt[0] * 1000, "sample.avi")
-    # bones_1 = h36m_17_get_bones(gt.numpy()[0])
-    # bones_2 = get_bones(gt.numpy()[0].reshape([-1, 17*3]))
-    # assert (((bones_1 - bones_2) == 0).all())
-    # print(bones_1)
+
+    ## Test model
+    # model = MotionFineTuningModel(config)
+    # sample_data = tf.random.uniform((64, 81, 51))
+    # model(sample_data)
+    # model.summary()
     
 # %% Main execution
 if __name__ == "__main__":

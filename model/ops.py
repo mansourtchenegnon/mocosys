@@ -36,16 +36,16 @@ def format_inputs(inputs : KerasTensor, window_size : int = 3, stride : int = 1)
     Parameters
     ----------
     inputs: KerasTensor,
-        A 4+D tensor with shape: :math:`(..., L, V, C)` where `L` is the length of the sequence, `V` the number
+        A 4+D tensor with shape: `(..., L, V, C)` where `L` is the length of the sequence, `V` the number
         of vertices (joints) and `C` the coordinates for each joint (features dimension).
-    window_size: int,
-        Size of the window `W`.
+    window_size: int, optional
+        Size of the window `W`, by default 3.
     stride: int, optional
         Stride to apply while sliding the window, by default 1.
 
     Returns
     -------
-        A 4+D tensor with shape: :math:`(..., L, W * V, C)`.
+        A 4+D tensor with shape: `(..., L, W * V, C)`.
     """
     def sliding_window(x, window_size=3, stride=1, axis=1):
         outputs = ops.take(
@@ -58,7 +58,7 @@ def format_inputs(inputs : KerasTensor, window_size : int = 3, stride : int = 1)
             [outputs[..., i, :, :] for i in range(window_size)], axis=-2
         )
 
-    return sliding_window(inputs, window_size, stride)
+    return sliding_window(pad(inputs, window_size // 2), window_size, stride)
 
 def vectorize(inputs : KerasTensor, num_of_joints : int = 17, window : int = None, stride : int = 1):
     """_summary_

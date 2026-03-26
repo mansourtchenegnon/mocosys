@@ -30,3 +30,6 @@ checkpoints/
 
 # IDE settings
 .vscode/
+
+# Mac OSx .DS_Store
+.DS_Store

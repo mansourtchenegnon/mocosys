@@ -10,7 +10,7 @@ from model.graph import skeleton
 from model.graph import laplacian
 from tests.functions import adjacency_matrix, basic_laplacian_matrix, distance_matrix, u_matrix
 
-class TestCommonGraphLaplacian(unittest.TestCase):
+class TestModelGraphLaplacian(unittest.TestCase):
 
     def test_matrix_A(self):
         skel = skeleton.SkeletonGraph(17, skeleton.H36M_17_JOINTS_SKELETON_BONES_PAIRS)

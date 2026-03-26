@@ -4,7 +4,7 @@
 @author: mansour
 """
 # %% Imports
-import tensorflow as tf
+import keras
 
 from model.graph import laplacian as matrix
 from model.graph.skeleton import H36M_17_JOINTS_SKELETON_BONES_PAIRS, SkeletonGraph
@@ -12,10 +12,10 @@ from model import layers, ops
 from types import SimpleNamespace
 
 
-class MotionFineTuningModel(tf.keras.Model):
+class MotionFineTuningModel(keras.Model):
     """ Neural Network for the Motion Fine-Tuning stage.
     """
-    def __init__(self, config, bones_pairs : list=H36M_17_JOINTS_SKELETON_BONES_PAIRS, name="cl-mc-model", *args, **kwargs):
+    def __init__(self, config, bones_pairs : list=H36M_17_JOINTS_SKELETON_BONES_PAIRS, name="motion-fine-tuning-model", *args, **kwargs):
         kwargs['name'] = name
         super().__init__(*args, **kwargs)
         self.joints = config.dataset.graph.skeleton.number_of_joints
@@ -28,28 +28,27 @@ class MotionFineTuningModel(tf.keras.Model):
         self.residual = config.model.arch.residual
         self.channels = config.model.arch.channels
         self.out_features = config.model.arch.channels_out
-        self.activation = tf.keras.activations.swish
+        self.activation = keras.activations.silu
 
-        constraints = {}
-        for i in range(self.window):
-            constraints[i * self.joints] = [0, 0, 0]
-        self.pose_solver = layers.PoseSolver(self.skeleton, 3, self.window, constraints)
+        # Positional constraints will be on root.
+        self.constraints = [i * self.joints for i in range(self.window)]
+        self.pose_solver = layers.PoseSolver(self.skeleton, 3, self.window, self.constraints)
         self.adj = matrix.create_normalized_matrix_A(self.skeleton, self.window, True)
         self.delta_converter = layers.DeltaConverter(self.skeleton, 3, self.window, self.pose_solver.lgs.L)
-        self.graph_conv_seq = tf.keras.Sequential([
+        self.graph_conv_seq = keras.Sequential([
             layers.GraphConv(self.channels,
                             self.adj,
                             residual=self.residual,
                             activation=self.activation,
                             name=f"{self.name}.hidden_graph_conv_0"),
-            tf.keras.layers.LayerNormalization(axis=[-1, -2],
+            keras.layers.LayerNormalization(axis=[-1, -2],
                                                name=f"{self.name}_norm_0"),
             layers.GraphConv(self.channels,
                             self.adj,
                             residual=self.residual,
                             activation=self.activation,
                             name=f"{self.name}.hidden_graph_conv_1"),
-            tf.keras.layers.LayerNormalization(axis=[-1, -2],
+            keras.layers.LayerNormalization(axis=[-1, -2],
                                                name=f"{self.name}_norm_1"),
             layers.GraphConv(self.out_features,
                             self.adj,
@@ -58,24 +57,34 @@ class MotionFineTuningModel(tf.keras.Model):
                             name=f"{self.name}.hidden_graph_conv_2")
         ], name=f"{self.name}.st_poses_correction")
 
-    def call(self, inputs, gamma=None, training=None, mask=None):
+    def call(self, inputs, gamma=None):
         if gamma is None:
             vec = ops.vectorize(inputs, self.joints, self.window)
             gamma = self.pose_solver.lgs.D @ vec
-        outputs = self.delta_converter(inputs)
+        u = ops.format_inputs(ops.pad(inputs[..., 0:1, :]), self.window)
+        self.pose_solver.set_constraints(u, gamma)
+        outputs = self.delta_converter(inputs, keepdims=False, format=True)
         for s in range(self.num_stages):
             outputs = self.graph_conv_seq(outputs)
-            outputs = self.pose_solver(outputs, gamma)
-            outputs = self.delta_converter(outputs)
-
-        poses = self.pose_solver(outputs, gamma)
+            outputs = self.pose_solver(outputs)
+            if s == self.num_stages - 1:
+                outputs = self.delta_converter(outputs, format=True, keepdims=True)
+            else:
+                outputs = self.delta_converter(outputs, format=True, keepdims=False)
+        poses = self.pose_solver(outputs)
         return outputs, poses
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "params": self.params
+        })
 
 
-class SkeletonModel(tf.keras.Model):
+class SkeletonModel(keras.Model):
     """ Neural network model that estimates bone lengths from a sequence of poses.
     """    
-    def __init__(self, params, name="sk_model", *args, **kwargs):
+    def __init__(self, params, name="skeleton-model", *args, **kwargs):
         """_summary_
 
         Parameters
@@ -99,22 +108,22 @@ class SkeletonModel(tf.keras.Model):
         self.features_out = 10
         self.dropout_rate = 0.2
 
-        self.spatial_encoder = tf.keras.Sequential([
+        self.spatial_encoder = keras.Sequential([
             layers.ConvolutionBlock(self.channels, 1, dropout_rate=self.dropout_rate),
             layers.Residual(layers.ConvolutionBlock(self.channels, 1, dropout_rate=self.dropout_rate))
         ], name=f"{self.name}.spatial_encoder")
 
-        self.temporal_encoder = tf.keras.Sequential([
+        self.temporal_encoder = keras.Sequential([
             layers.ConvolutionBlock(self.channels, self.window, dropout_rate=self.dropout_rate),
             layers.Residual(
                 layers.ConvolutionBlock(self.channels, self.window, dropout_rate=self.dropout_rate)
             ),
             layers.ConvolutionBlock(self.channels, 1, dropout_rate=self.dropout_rate)
         ], name=f"{self.name}.temporal_encoder")
-        self.regression = tf.keras.Sequential([
-            tf.keras.layers.BatchNormalization(),
+        self.regression = keras.Sequential([
+            keras.layers.BatchNormalization(),
             layers.AdaptiveAvgPool(1),
-            tf.keras.layers.Conv1D(self.features_out, 1)
+            keras.layers.Conv1D(self.features_out, 1)
         ], name=f"{self.name}.regression")
 
     def call(self, inputs, training=None, mask=None):

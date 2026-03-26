@@ -45,7 +45,7 @@ ES = [
     [15, 16],  # radius r
 ]
 
-class TestCommonGraphSkeleton(unittest.TestCase):
+class TestModelGraphSkeleton(unittest.TestCase):
 
     def test_skeleton(self):
         skel = skeleton.SkeletonGraph(17, skeleton.H36M_17_JOINTS_SKELETON_BONES_PAIRS)

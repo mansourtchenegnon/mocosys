@@ -8,6 +8,7 @@
 import datetime
 import argparse
 import tensorflow as tf
+import keras
 from utility import arguments
 from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader, Human36mSotaDatasetLoader
 from model.models import MotionFineTuningModel, SkeletonModel
@@ -92,9 +93,9 @@ if __name__ == "__main__":
     config, args = get_config()
     # reproducibility measure
     if args.seed:
-        tf.random.set_seed(args.seed)
+        keras.utils.set_random_seed(args.seed)
     else:
-        tf.random.set_seed(97)
+        keras.utils.set_random_seed(97)
     
     # training
     if args.arch == "mftmodel":
