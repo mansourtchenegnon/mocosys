@@ -9,7 +9,7 @@ import math
 import pickle
 import sys
 import time
-from model import losses as losses
+from model import losses, metrics
 from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader, Human36mSotaDatasetLoader
 import utility.logger as logs
 import utility.tools as tools
@@ -47,6 +47,7 @@ class Trainer:
         self.logger = logs.Logger("%s/training.log" % self.log_dir)
         self.train_summary_writer = tf.summary.create_file_writer(f"{self.log_dir}/train")
         self.test_summary_writer = tf.summary.create_file_writer(f"{self.log_dir}/test")
+        self.history = {}
 
 
     def save_checkpoint(self, epoch: int = None):
@@ -81,88 +82,78 @@ class MFTModelTrainer(Trainer):
         self.BATCH_SIZE = config.running.batch_size
         self.EPOCHS = config.running.epochs
         self.mse = tf.keras.losses.MeanSquaredError()
+        self.distance_loss = losses.DistanceLoss()
 
         # Loss weights
         self.a = tf.constant(1.)  # position
         self.b = tf.constant(1.)  # delta
-        self.c = tf.constant(0.)  # bone
-        self.d = tf.constant(0.)  # velocity
 
-        self.delta_converter = solvers.DeltaConverter(
-            3,
-            self.model.skeleton,
-            self.model.window)
+        self.delta_converter = solvers.DeltaConverter(self.model.skeleton, 3, self.model.window)
 
         # Optimizer
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
         
-        # Metrics to track losses
+        # Metrics to track
         self.train_loss = tf.keras.metrics.Mean(name="train_loss")
         self.test_loss = tf.keras.metrics.Mean(name="test_loss")
-        self.train_position_loss = tf.keras.metrics.Mean(name="train_position_loss")
-        self.test_position_loss = tf.keras.metrics.Mean(name="test_position_loss")
-        self.train_bone_loss = tf.keras.metrics.Mean(name="train_bone_loss")
-        self.test_bone_loss = tf.keras.metrics.Mean(name="test_bone_loss")
-        self.train_velocity_loss = tf.keras.metrics.Mean(name="train_velocity_loss")
-        self.test_velocity_loss = tf.keras.metrics.Mean(name="test_velocity_loss")
-        self.train_delta_loss = tf.keras.metrics.Mean(name="train_delta_loss")
-        self.test_delta_loss = tf.keras.metrics.Mean(name="test_delta_loss")
+        self.train_position_error = tf.keras.metrics.Mean(name="train_position_error")
+        self.test_position_error = tf.keras.metrics.Mean(name="test_position_error")
+        self.train_bone_error = tf.keras.metrics.Mean(name="train_bone_error")
+        self.test_bone_error = tf.keras.metrics.Mean(name="test_bone_error")
+        self.train_velocity_error = tf.keras.metrics.Mean(name="train_velocity_error")
+        self.test_velocity_error = tf.keras.metrics.Mean(name="test_velocity_error")
+        self.train_acceleration_error = tf.keras.metrics.Mean(name="train_acceleration_error")
+        self.test_acceleration_error = tf.keras.metrics.Mean(name="test_acceleration_error")
         
         self.save_freq = 10
         self.monitor_best = math.inf
-        self.epoch_log = "\r\r{}/{} [{:03d}%] loss={:.6f}, e_pos={:.6f}, " \
-                        "e_delta={:.6f}, e_bone={:.6f}, e_vel={:.6f}"
+        self.epoch_log = "\r\r{}/{} [{:03d}%] loss={:.6f}, e_pos={:.3f}, e_vel={:.3f}, e_acc={:.3f}, e_bone={:.3f}"
         self.epoch_summary = (
             "Epoch {:03d}/{:03d}:\n"
             "----------------------------------------------------------\n"
             "Loss: {:.3f}, Test Loss: {:.3f}\n"
             "Position Error: {:.3f}, Test Position Error: {:.3f}\n"
-            "Delta Error: {:.6f}, Test Delta Error: {:.6f}\n"
-            "Bone Length Error: {:.3f}, Test Bone Length Error: {:.3f}\n"
             "Velocity Error: {:.3f}, Test Velocity Error: {:.3f}\n"
+            "Acceleration Error: {:.3f}, Test Acceleration Error: {:.3f}\n"
+            "Bone Length Error: {:.3f}, Test Bone Length Error: {:.3f}\n"
         )
 
     def __reset_trackers__(self, training=True):
         if training:
             self.train_loss.reset_state()
-            self.train_position_loss.reset_state()
-            self.train_delta_loss.reset_state()
-            self.train_bone_loss.reset_state()
-            self.train_velocity_loss.reset_state()
+            self.train_position_error.reset_state()
+            self.train_bone_error.reset_state()
+            self.train_velocity_error.reset_state()
+            self.train_acceleration_error.reset_state()
         else:
             self.test_loss.reset_state()
-            self.test_position_loss.reset_state()
-            self.test_delta_loss.reset_state()
-            self.test_bone_loss.reset_state()
-            self.test_velocity_loss.reset_state()
+            self.test_position_error.reset_state()
+            self.test_bone_error.reset_state()
+            self.test_velocity_error.reset_state()
+            self.test_acceleration_error.reset_state()
 
     def compute_losses(self, targets, predictions):
-        deltas, poses = predictions
-        position_loss = losses.mean_distance_loss(targets, poses)
         delta_loss = tf.keras.losses.mse(
-            self.delta_converter(targets),
-            deltas
+            self.delta_converter(targets, keepdims=True, format=True),
+            predictions
         )
-        bone_loss = losses.mean_bone_length_loss(targets, poses)
-        velocity_loss = losses.mean_velocity_loss(targets, poses)
-        loss = tf.constant(0.0, dtype=float) + self.a * position_loss \
-        + self.b * delta_loss + self.c * bone_loss + self.d * velocity_loss
-        return loss, position_loss, delta_loss, bone_loss, velocity_loss
+        loss = .0 + delta_loss
+        return loss
 
     def train_epoch(self, epoch):
         def train_step(data):
             _, estimation, gt, _ = data
             with tf.GradientTape() as tape:
-                predictions = self.model(estimation, training=True)
-                loss, loss_position, loss_delta, loss_bone, loss_vel = self.compute_losses(gt, predictions)
+                predictions, poses = self.model(estimation, training=True)
+                loss = self.compute_losses(gt, predictions)
 
             gradients = tape.gradient(loss, self.model.trainable_variables)
             self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
             self.train_loss.update_state(loss)
-            self.train_position_loss.update_state(loss_position)
-            self.train_delta_loss.update_state(loss_delta)
-            self.train_bone_loss.update_state(loss_bone)
-            self.train_velocity_loss.update_state(loss_vel)
+            self.train_position_error.update_state(metrics.mean_position_error(gt, poses))
+            self.train_velocity_error.update_state(metrics.mean_velocity_error(gt, poses))
+            self.train_acceleration_error.update_state(metrics.mean_acceleration_error(gt, poses))
+            self.train_bone_error.update_state(metrics.mean_bone_length_error(gt, poses))
             return estimation.shape[0] * estimation.shape[1]
         
         counter = 0
@@ -177,32 +168,32 @@ class MFTModelTrainer(Trainer):
                     self._trainset.total_frames(),
                     int(percent * 100),
                     self.train_loss.result().numpy(),
-                    self.train_position_loss.result().numpy(),
-                    self.train_delta_loss.result().numpy(),
-                    self.train_bone_loss.result().numpy(),
-                    self.train_velocity_loss.result().numpy()
+                    self.train_position_error.result().numpy() * 1000,
+                    self.train_velocity_error.result().numpy() * 1000,
+                    self.train_acceleration_error.result().numpy() * 1000,
+                    self.train_bone_error.result().numpy() * 1000
                 )
             )
             sys.stdout.flush()
         print()
         print("---"*5)
         with self.train_summary_writer.as_default():
-            tf.summary.scalar('loss', self.train_loss.result(), step=epoch)
-            tf.summary.scalar('position loss', self.train_position_loss.result(), step=epoch)
-            tf.summary.scalar('delta loss', self.train_delta_loss.result(), step=epoch)
-            tf.summary.scalar('bone loss', self.train_bone_loss.result(), step=epoch)
-            tf.summary.scalar('velocity loss', self.train_velocity_loss.result(), step=epoch)
+            tf.summary.scalar('train loss', self.train_loss.result(), step=epoch)
+            tf.summary.scalar('train position error', self.train_position_error.result(), step=epoch)
+            tf.summary.scalar('train acceleration error', self.train_acceleration_error.result(), step=epoch)
+            tf.summary.scalar('train bone error', self.train_bone_error.result(), step=epoch)
+            tf.summary.scalar('train velocity error', self.train_velocity_error.result(), step=epoch)
 
     def test_epoch(self, epoch):
         def test_step(data):
             _, estimation, gt, _ = data
-            predictions = self.model(estimation, training=False)
-            loss, loss_position, loss_delta, loss_bone, loss_vel = self.compute_losses(gt, predictions)
+            predictions, poses = self.model(estimation, training=False)
+            loss = self.compute_losses(gt, predictions)
             self.test_loss.update_state(loss)
-            self.test_position_loss.update_state(loss_position)
-            self.test_delta_loss.update_state(loss_delta)
-            self.test_bone_loss.update_state(loss_bone)
-            self.test_velocity_loss.update_state(loss_vel)
+            self.test_position_error.update_state(metrics.mean_position_error(gt, poses))
+            self.test_acceleration_error.update_state(metrics.mean_acceleration_error(gt, poses))
+            self.test_bone_error.update_state(metrics.mean_bone_length_error(gt, poses))
+            self.test_velocity_error.update_state(metrics.mean_velocity_error(gt, poses))
             return estimation.shape[0] * estimation.shape[1]
         counter = 0
         self.__reset_trackers__(training=False)
@@ -216,27 +207,50 @@ class MFTModelTrainer(Trainer):
                     self._testset.total_frames(),
                     int(percent * 100),
                     self.test_loss.result().numpy(),
-                    self.test_position_loss.result().numpy(),
-                    self.test_delta_loss.result().numpy(),
-                    self.test_bone_loss.result().numpy(),
-                    self.test_velocity_loss.result().numpy()
+                    self.test_position_error.result().numpy() * 1000,
+                    self.test_velocity_error.result().numpy() * 1000,
+                    self.test_acceleration_error.result().numpy() * 1000,
+                    self.test_bone_error.result().numpy() * 1000
                 )
             )
             sys.stdout.flush()
         print()
         print("---"*5)
         with self.test_summary_writer.as_default():
-            tf.summary.scalar('loss', self.test_loss.result(), step=epoch)
-            tf.summary.scalar('position loss', self.test_position_loss.result(), step=epoch)
-            tf.summary.scalar('delta loss', self.test_delta_loss.result(), step=epoch)
-            tf.summary.scalar('bone loss', self.test_bone_loss.result(), step=epoch)
-            tf.summary.scalar('velocity loss', self.test_velocity_loss.result(), step=epoch)
+            tf.summary.scalar('test loss', self.test_loss.result(), step=epoch)
+            tf.summary.scalar('test position loss', self.test_position_error.result() * 1000, step=epoch)
+            tf.summary.scalar('test acceleration loss', self.test_acceleration_error.result() * 1000, step=epoch)
+            tf.summary.scalar('test bone loss', self.test_bone_error.result() * 1000, step=epoch)
+            tf.summary.scalar('test velocity loss', self.test_velocity_error.result() * 1000, step=epoch)
 
     def train(self):
+        # Initialise necessary variables
+        train_loss_results = []
+        test_loss_results = []
+        train_position_error_results = []
+        test_position_error_results = []
+        train_bone_error_results = []
+        test_bone_error_results = []
+        train_acceleration_error_results = []
+        test_acceleration_error_results = []
+        train_velocity_error_results = []
+        test_velocity_error_results = []
         t = time.time()
         for epoch in range(self.EPOCHS):
             self.train_epoch(epoch)
             self.test_epoch(epoch)
+
+            train_loss_results.append(self.train_loss.result().numpy())
+            test_loss_results.append(self.test_loss.result().numpy())
+            train_position_error_results.append(self.train_position_error.result().numpy() * 1000)
+            test_position_error_results.append(self.test_position_error.result().numpy() * 1000)
+            train_acceleration_error_results.append(self.train_acceleration_error.result().numpy() * 1000)
+            test_acceleration_error_results.append(self.test_acceleration_error.result().numpy() * 1000)
+            train_bone_error_results.append(self.train_bone_error.result().numpy() * 1000)
+            test_bone_error_results.append(self.test_bone_error.result().numpy() * 1000)
+            train_velocity_error_results.append(self.train_vel_loss.result().numpy() * 1000)
+            test_velocity_error_results.append(self.test_vel_loss.result().numpy() * 1000)
+
             best = False
             if self.monitor_best > self.test_loss.result().numpy():
                 best = True
@@ -247,14 +261,32 @@ class MFTModelTrainer(Trainer):
             print()
             msg = self.epoch_summary.format(
                 epoch, self.EPOCHS, self.train_loss.result(), self.test_loss.result(),
-                self.train_position_loss.result(), self.test_position_loss.result(),
-                self.train_delta_loss.result(), self.test_delta_loss.result(),
-                self.train_bone_loss.result(), self.test_bone_loss.result(),
-                self.train_velocity_loss.result(), self.test_velocity_loss.result()
+                self.train_position_error.result() * 1000, self.test_position_error.result() * 1000,
+                self.train_delta_loss.result() * 1000, self.test_delta_loss.result() * 1000,
+                self.train_bone_error.result() * 1000, self.test_bone_error.result() * 1000,
+                self.train_velocity_error.result() * 1000, self.test_velocity_error.result() * 1000
             )
             logs.print_info(msg)
+            self.logger.info(msg)
+            self.logger.printing("\nSaving new best checkpoints at epoch {:03d}".format(epoch))
+            self.logger.printing("==========" * 3)
             print("===" * 10)
         t = tools.secondsToStr(time.time() - t)
+        # History dictionary
+        self.history = {
+            "train loss": train_loss_results,
+            "test loss": test_loss_results,
+            "train position error": train_position_error_results,
+            "test position error": test_position_error_results,
+            "train bone error": train_bone_error_results,
+            "test bone error": test_bone_error_results,
+            "train acceleration error": train_acceleration_error_results,
+            "test acceleration error": test_acceleration_error_results,
+            "train velocity error": train_velocity_error_results,
+            "test velocity error": test_velocity_error_results,
+        }
+        self.logger.info(f"Training completed! Duration: {t}")
+        self.logger.commit_logs()
         logs.print_info(f"Training completed ! Duration: {t}")
 
 

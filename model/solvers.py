@@ -146,7 +146,7 @@ class LaplacianGraphSolver:
             delta_c = kops.concatenate((delta_c, self.constraints_Gamma), axis=-2)
         return delta_c
 
-    def solve(self, delta):
+    def solve(self, delta, **kwargs):
         """Resolve laplacian problem `self` from joint differential coordinates
         `delta` to compute the joint positions.
 
@@ -165,9 +165,10 @@ class LaplacianGraphSolver:
         assert kops.ndim(delta) == 4, "Expected delta to be of rank 4 but got {}".format(
             kops.shape(delta)
         )
-        # Pad if necessary
-        delta = ops.format_inputs(delta, self.T)
+        if "format" in kwargs and kwargs["format"] is True:
+            delta = ops.format_inputs(delta, self.T)
         n, seq_l, tv, c = kops.shape(delta)
+
         assert (
                 tv == kops.shape(self.L)[1]
         ), "Expected shape to be [{}, {}, {}, {}] but got {}".format(
@@ -175,23 +176,25 @@ class LaplacianGraphSolver:
         )
         delta = kops.reshape(delta, (n, -1, kops.shape(self.L)[1], c))
         dc = self.apply_constraints(delta)
-        print("delta", dc.shape)
-        print("LUD", self.LUD.shape)
+        # print("delta", dc.shape)
+        # print("LUD", self.LUD.shape)
         if self.constraints_Gamma is not None:
             m = kops.swapaxes(self.LUD, -1, -2) @ self.LUD
             b = kops.swapaxes(self.LUD, -1, -2) @ dc
+            # m = kops.conjugate(kops.swapaxes(self.LUD, -1, -2)) @ self.LUD
+            # b = kops.conjugate(kops.swapaxes(self.LUD, -1, -2)) @ dc
         else:
             m = kops.swapaxes(self.LU, -1, -2) @ self.LU
             b = kops.swapaxes(self.LU, -1, -2) @ dc
+            # m = kops.conjugate(kops.swapaxes(self.LU, -1, -2)) @ self.LU
+            # b = kops.conjugate(kops.swapaxes(self.LU, -1, -2)) @ dc
         # print("M is symmetric ?", is_symmetric(m))
-        print("m", m.shape)
-        print("b", b.shape)
-        u = kops.linalg.cholesky(m, True)  # upper
-        print("u", u.shape)
-        u = kops.repeat(u, b.shape[1], axis=1)
-        u = kops.repeat(u, b.shape[0], axis=0)
-        print("u", u.shape)
-        y = kops.linalg.solve_triangular(u, b)
+        # print("m", m.shape)
+        # print("b", b.shape)
+        m = kops.repeat(m, b.shape[1], axis=1)
+        m = kops.repeat(m, b.shape[0], axis=0)
+        y = kops.linalg.solve(m, b)
+
         return y
 
     def pose_to_delta(self, x : KerasTensor):
@@ -205,7 +208,7 @@ class LaplacianGraphSolver:
 
 
 class DeltaConverter:
-    def __init__(self, features, skel : SkeletonGraph, t, sw=1.0, tw=1.0):
+    def __init__(self, skel : SkeletonGraph, features, t, sw=1.0, tw=1.0):
         self.features = features
         self.t = t
         self.v = skel.get_num_of_joints()
@@ -236,12 +239,12 @@ class DeltaConverter:
 
 
 class PosesConverter:
-    def __init__(self, features : int, skel : SkeletonGraph, t : int, constraints : dict, sw=1.0, tw=1.0, **kwargs):
+    def __init__(self, skel : SkeletonGraph, features : int, t : int, constraints : dict, sw=1.0, tw=1.0, **kwargs):
         """Converts laplacian cordinates `Δ` to cartesian coordinates `P` using graph solver.
 
         Args:
-            features (int): Number of features for each node of the graph.
             skel (SkeletonGraph): Graph of skeleton.
+            features (int): Number of features for each node of the graph.
             t (int): Length of the motion graph sequence.
             constraints (dict): Dictionnary of constraints for resolution.
             sw (float, optional): Weight of spatial edge. Defaults to 1.0.

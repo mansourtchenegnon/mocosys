@@ -9,10 +9,11 @@ import datetime
 import argparse
 import tensorflow as tf
 import keras.ops as kops
+import numpy
 from model.graph import skeleton
 from model.models import MotionFineTuningModel
-from model.solvers import DeltaConverter, PosesConverter
-from model import ops
+from model.solvers import DeltaConverter, LaplacianGraphSolver, PosesConverter
+from model import ops, layers
 from utility import arguments
 from utility.datasets.loaders.h36m_dataloader import Human36mDatasetLoader, Human36mSotaDatasetLoader
 
@@ -61,48 +62,60 @@ def get_config():
     config.running.version = version
     return config, args
 
+
 # %% Test
-def test(config, args):
+def test_laplacian():
+    ## Test pose and delta converter
+    gt = numpy.load("data/poses.npy")
+    gt = kops.convert_to_tensor(numpy.reshape(gt, [-1, 17, 3]))
+    gt = kops.expand_dims(gt, axis=0)
+    print("gt", gt.shape)
+    skel = skeleton.SkeletonGraph(17, skeleton.H36M_17_JOINTS_SKELETON_BONES_PAIRS)
+    delta_converter = layers.DeltaConverter(skel, 3, 3)
+    pose_converter = layers.PoseSolver(skel, 3, 3, [0, 0, 0])
+    delta = delta_converter(gt, format=True, keepdims=True)
+    u = ops.format_inputs(gt[..., 0:1, :], 3)
+    vec = ops.vectorize(gt, skel.get_num_of_joints(), 3)
+    gamma = pose_converter.lgs.D @ vec
+    pose_converter.set_constraints(u, gamma)
+
+    pose = pose_converter(delta, format=True)
+    diff = kops.norm(pose - gt, axis=-1)
+    print("max", kops.max(diff))
+    print("mean", kops.mean(diff))
+    print("min", kops.min(diff))
+
+def test_dataset(config, args):
     ## Test dataset
     # h36m default data
     # dataset = Human36mDatasetLoader(training_set=False, batch_size=config.running.batch_size, keypoints="gt", chunk_size=243)
     # iterator = iter(dataset.get_dataset())
     # _, gt, _ = next(iterator)
+    
     # h36m sota dataset
     dataset = Human36mSotaDatasetLoader(
         training_set=False,
         batch_size=config.running.batch_size,
         keypoints="cpn", chunk_size=243, fused=False,
-        location="data/human36m")
+        # location="data/human36m"
+        )
     iterator = iter(dataset.get_dataset())
     inp, est, gt, _ = next(iterator)
-    # print("input", inp.shape)
-    # print("estimation", est.shape)
-    # print("gt", gt.shape)
-    
-    ## Test pose and delta converter
-    skel = skeleton.SkeletonGraph(17, skeleton.H36M_17_JOINTS_SKELETON_BONES_PAIRS)
-    delta_converter = DeltaConverter(3, skel, 3)
-    pose_converter = PosesConverter(3, skel, 3, [0, 0, 0])
-    delta = delta_converter(gt, format=True, keepdims=True)
-    u = ops.format_inputs(gt[..., 0:1, :], 3)
-    vec = ops.vectorize(gt, 17, 3)
-    gamma = pose_converter.lgs.D @ vec
-    pose_converter.set_constraints(u, gamma)
-    pose = pose_converter(delta)
-    diff = kops.max(pose - gt)
-    print(diff)
+    print("input", inp.shape)
+    print("estimation", est.shape)
+    print("gt", gt.shape)
     
     # from rendering import display, animation
     # display.generate_3d_animation(gt[0] * 1000, "sample")
     # animation.animate_motions_vs(gt[0] * 1000, est[0] * 1000)
     # animation.save_animate_motion(gt[0] * 1000, "sample.avi")
 
+def test_model(config, args):
     ## Test model
-    # model = MotionFineTuningModel(config)
-    # sample_data = tf.random.uniform((64, 81, 51))
-    # model(sample_data)
-    # model.summary()
+    model = MotionFineTuningModel(config)
+    sample_data = tf.random.uniform((64, 81, 17, 3))
+    model(sample_data)
+    model.summary(expand_nested=True)
     
 # %% Main execution
 if __name__ == "__main__":
@@ -110,4 +123,6 @@ if __name__ == "__main__":
     # parse args
     config, args = get_config()    
     # training
-    test(config, args)
+    test_dataset(config, args)
+    # test_model(config, args)
+    # test_laplacian()

@@ -7,7 +7,7 @@
 from keras import ops
 
 
-def mean_points_error(y_true, y_pred):
+def mean_position_error(y_true, y_pred):
     return ops.mean(
         ops.norm(y_true - y_pred, axis=-1),  axis=[-1, -2]
     )
@@ -37,43 +37,18 @@ def distance(position1, position2):
 
 
 def get_bones(positions):
-    length = ops.zeros(positions.shape[:-2]+[10])
-    length[..., :, 0] = (
-        distance(positions[..., :, 0, :], positions[..., :, 1, :])
-        + distance(positions[..., :, 0, :], positions[..., :, 4, :])
-    ) / 2
-    length[..., :, 1] = (
-        distance(positions[..., :, 1, :], positions[..., :, 2, :])
-        + distance(positions[..., :, 4, :], positions[..., :, 5, :])
-    ) / 2
-    length[..., :, 2] = (
-        distance(positions[..., :, 2, :], positions[..., :, 3, :])
-        + distance(positions[..., :, 5, :], positions[..., :, 6, :])
-    ) / 2
-    length[..., :, 3] = distance(
-        positions[..., :, 0, :], positions[..., :, 7, :]
-    )
-    length[..., :, 4] = distance(
-        positions[..., :, 7, :], positions[..., :, 8, :]
-    )
-    length[..., :, 5] = distance(
-        positions[..., :, 8, :], positions[..., :, 9, :]
-    )
-    length[..., :, 6] = distance(
-        positions[..., :, 9, :], positions[..., :, 10, :]
-    )
-    length[..., :, 7] = (
-        distance(positions[..., :, 8, :], positions[..., :, 11, :])
-        + distance(positions[..., :, 8, :], positions[..., :, 14, :])
-    ) / 2
-    length[..., :, 8] = (
-        distance(positions[..., :, 14, :], positions[..., :, 15, :])
-        + distance(positions[..., :, 11, :], positions[..., :, 12, :])
-    ) / 2
-    length[..., :, 9] = (
-        distance(positions[..., :, 15, :], positions[..., :, 16, :])
-        + distance(positions[..., :, 12, :], positions[..., :, 13, :])
-    ) / 2
+    length = ops.concatenate(
+        ((distance(positions[..., :, 0, :], positions[..., :, 1, :]) + distance(positions[..., :, 0, :], positions[..., :, 4, :])) / 2,
+        (distance(positions[..., :, 1, :], positions[..., :, 2, :]) + distance(positions[..., :, 4, :], positions[..., :, 5, :])) / 2,
+        (distance(positions[..., :, 2, :], positions[..., :, 3, :]) + distance(positions[..., :, 5, :], positions[..., :, 6, :])) / 2,
+        distance(positions[..., :, 0, :], positions[..., :, 7, :]),
+        distance(positions[..., :, 7, :], positions[..., :, 8, :]),
+        distance(positions[..., :, 8, :], positions[..., :, 9, :]),
+        distance(positions[..., :, 9, :], positions[..., :, 10, :]),
+        (distance(positions[..., :, 8, :], positions[..., :, 11, :]) + distance(positions[..., :, 8, :], positions[..., :, 14, :])) / 2,
+        (distance(positions[..., :, 14, :], positions[..., :, 15, :]) + distance(positions[..., :, 11, :], positions[..., :, 12, :])) / 2,
+        (distance(positions[..., :, 15, :], positions[..., :, 16, :]) + distance(positions[..., :, 12, :], positions[..., :, 13, :])) / 2)
+        , axis=-1)
     return length
 
 

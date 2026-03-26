@@ -61,17 +61,17 @@ class MotionFineTuningModel(keras.Model):
         if gamma is None:
             vec = ops.vectorize(inputs, self.joints, self.window)
             gamma = self.pose_solver.lgs.D @ vec
-        u = ops.format_inputs(ops.pad(inputs[..., 0:1, :]), self.window)
+        u = ops.format_inputs(inputs[..., 0:1, :], self.window)
         self.pose_solver.set_constraints(u, gamma)
-        outputs = self.delta_converter(inputs, keepdims=False, format=True)
+        outputs = self.delta_converter(inputs, keepdims=False, format=True)  # [..., T, W*V, C]
         for s in range(self.num_stages):
-            outputs = self.graph_conv_seq(outputs)
-            outputs = self.pose_solver(outputs)
+            outputs = self.graph_conv_seq(outputs)  # [..., T, W*V, C]
+            outputs = self.pose_solver(outputs, format=False)
             if s == self.num_stages - 1:
-                outputs = self.delta_converter(outputs, format=True, keepdims=True)
+                outputs = self.delta_converter(outputs, format=True, keepdims=True)  # [..., T, V, C]
             else:
-                outputs = self.delta_converter(outputs, format=True, keepdims=False)
-        poses = self.pose_solver(outputs)
+                outputs = self.delta_converter(outputs, format=True, keepdims=False)  # [..., T, W*V, C]
+        poses = self.pose_solver(outputs)  # [..., T, W*V, C]
         return outputs, poses
     
     def get_config(self):

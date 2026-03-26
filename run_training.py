@@ -63,10 +63,21 @@ def get_config():
 def train_motion_fine_tuning_model(config, args):
     # Load dataset
     if args.dataset == "h36m":
-        trainset = Human36mSotaDatasetLoader(keypoints="cpn", batch_size=config.running.batch_size, chunk_size=config.running.data_cut)
-        testset = Human36mSotaDatasetLoader(training_set=False, batch_size=config.running.batch_size, keypoints="cpn", chunk_size=243)
+        trainset = Human36mSotaDatasetLoader(
+            keypoints="cpn",
+            batch_size=config.running.batch_size,
+            chunk_size=config.running.data_cut,
+            fused=False
+        )
+        testset = Human36mSotaDatasetLoader(
+            training_set=False,
+            batch_size=config.running.batch_size,
+            keypoints="cpn",
+            chunk_size=243,
+            fused=False
+        )
     else:
-        raise Exception(f"Dataset {args.dataset} not recognized !")
+        raise Exception(f"Dataset {args.dataset} not recognized!")
     # Create model and trainer
     model = MotionFineTuningModel(config)
     trainer = MFTModelTrainer(config, model, trainset, testset)

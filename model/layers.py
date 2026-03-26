@@ -79,7 +79,7 @@ class PoseSolver(keras.layers.Layer):
 
     def call(self, inputs, *args, **kwargs):
         """
-        Converts Δ to P using Cholesky resolution.
+        Converts `Δ` to `P` using Cholesky resolution.
 
         Args:
             inputs (Tensor): Represents the 3D joint differential coordinates Δ. It is a 4+D tensor with shape `(B, T, W*V, C)`.
@@ -90,7 +90,11 @@ class PoseSolver(keras.layers.Layer):
         Returns:
             outputs (Tensor): A 4+D tensor with shape `(B, T, V, C)`.
         """
-        outputs = self.lgs.solve(inputs)
+        if "format" in kwargs:
+            outputs = self.lgs.solve(inputs, format=kwargs["format"])
+        else:
+            outputs = self.lgs.solve(inputs, format=True)
+
         # retrieve central frames
         center = self.t // 2
         outputs = outputs[:, :, center * self.v:center * self.v + self.v, :]

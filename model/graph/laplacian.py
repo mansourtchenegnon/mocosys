@@ -79,8 +79,17 @@ def create_normalized_matrix_A(skeleton_graph : SkeletonGraph, sequence_length :
     return dad
 
 
-def is_symmetric(matrix):
-    pass
+def is_symmetric(matrix : np.ndarray):
+    """Checks if the matrix `matrix` is symmetric.
+
+    Args:
+        matrix (np.ndarray): A numpy array representing the matrix
+
+    Returns:
+        bool: `True` if the matrix is symmetric, `False` otherwise.
+    """
+    assert np.ndim(matrix) >= 2, "Expected dimension to be greater than 2 bu got {} instead".format(np.ndim(matrix))
+    return np.all(matrix - np.linalg.matrix_transpose(matrix) == 0)
 
 
 def create_matrix_D(skeleton_graph : SkeletonGraph, sequence_length : int):

@@ -31,6 +31,51 @@ class DistanceLoss(keras.losses.Loss):
         )
         return loss
 
+class VelocityLoss(keras.losses.Loss):
+    def __init__(self, name="velocity_loss"):
+        super().__init__(name)
+
+    def call(self, y_true, y_pred):
+        """Computes the velocity loss values over joints and then over sequence.
+
+        Args:
+            y_true (Tensor): The ground truth tensor.
+            y_pred (Tensor): The predicted tensor.
+
+        Returns:
+            A **Tensor**, corresponding to the computed joint distance loss value.
+        """
+        loss = ops.mean(
+        ops.norm(
+            (y_true[..., 1:, :, :] - y_true[..., :-1, :, :]) - (y_pred[..., 1:, :, :] - y_pred[..., :-1, :, :]),
+                axis=-1
+            ), axis=[-1, -2]
+        )
+        return loss
+
+class AccelerationLoss(keras.losses.Loss):
+    def __init__(self, name="acceleration_loss"):
+        super().__init__(name)
+
+    def call(self, y_true, y_pred):
+        """Computes the acceleration loss values over joints and then over sequence.
+
+        Args:
+            y_true (Tensor): The ground truth tensor.
+            y_pred (Tensor): The predicted tensor.
+
+        Returns:
+            A **Tensor**, corresponding to the computed joint distance loss value.
+        """
+        y_true_acc = y_true[..., 2:, :, :] - 2 * y_true[..., 1:-1, :, :] + y_true[..., :-2, :, :]
+        y_pred_acc = y_pred[..., 2:, :, :] - 2 * y_pred[..., 1:-1, :, :] + y_pred[..., :-2, :, :]
+        loss = ops.mean(
+            ops.norm(
+                y_true_acc - y_pred_acc, axis=-1
+                ), axis=[-1, -2]
+            )
+        return loss
+
 class BoneLengthLoss(keras.losses.Loss):
     def __init__(self, name="bone_length_loss"):
         super().__init__(name)
