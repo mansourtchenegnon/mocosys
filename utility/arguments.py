@@ -60,7 +60,7 @@ def update_config(args):
     if args.config:
         with open(args.config, "r") as f:
             config = yaml.safe_load(f)
-            config = tools.dict_to_namespace(config)
+            # config = tools.dict_to_namespace(config)
     else:
         raise Exception("Missing configuration file !")
     if not config:
@@ -68,33 +68,33 @@ def update_config(args):
     
     # Dataset configuration
     if args.dataset:
-        config.dataset.name = args.dataset
+        config["dataset"]["name"] = args.dataset
     if args.keypoints:
-        config.dataset.keypoints = args.keypoints
+        config["dataset"]["keypoints"] = args.keypoints
     if args.estimation:
-        config.dataset.estimation = args.estimation
+        config["dataset"]["estimation"] = args.estimation
 
     # Architecture configurations
     if args.channels:
-        config.model.arch.channels = args.channels
+        config["model"]["arch"]["channels"] = args.channels
     if args.window:
-        config.model.arch.window = config.arch.window
+        config["model"]["arch"]["window"] = config.arch.window
     if args.stages:
-        config.model.arch.stages = args.stages
+        config["model"]["arch"]["stages"] = args.stages
     if args.channels_in:
-        config.model.arch.channels_in = args.channels_in
+        config["model"]["arch"]["channels_in"] = args.channels_in
     if args.channels_out:
-        config.model.arch.channels_out = args.channels_out
+        config["model"]["arch"]["channels_out"] = args.channels_out
 
     # Running configurations
     if args.batch_size:
-        config.running.batch_size = args.batch_size
+        config["running"]["batch_size"] = args.batch_size
     if args.frames:
-        config.running.frames = args.frames
+        config["running"]["frames"] = args.frames
     if args.epochs:
-        config.running.epochs = args.epochs
+        config["running"]["epochs"] = args.epochs
     if args.frames:
-        config.running.data_cut = args.frames
+        config["running"]["data_cut"] = args.frames
 
     # # only in local for testing
     # config.dataset.location = "/home/mansour/Workspace/phd/codes/npz_data"

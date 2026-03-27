@@ -6,9 +6,11 @@
 """
 
 import math
-import pickle
+import yaml
 import sys
 import time
+
+from arrow import get
 from model import losses, metrics
 from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader, Human36mSotaDatasetLoader
 import utility.logger as logs
@@ -38,8 +40,8 @@ class Trainer:
 
         """
         self.config = config
-        self.checkpoint_dir = "./checkpoints/%s/%s" % (model_type, config.running.version)
-        self.log_dir = "./checkpoints/logs/%s/%s" % (model_type, config.running.version)
+        self.checkpoint_dir = "./checkpoints/%s/%s" % (model_type, config["running"]["version"])
+        self.log_dir = "./checkpoints/logs/%s/%s" % (model_type, config["running"]["version"])
         self.model = model
         tools.make_dir(self.checkpoint_dir)
         tools.make_dir(self.log_dir)
@@ -55,18 +57,18 @@ class Trainer:
         state = {
             'arch': arch,
             'epoch': epoch,
-            'config': self.model.params
+            'config': self.model.configuration
         }
         if epoch:
             folder = f'{self.checkpoint_dir}/ckpt-{epoch:04d}'
             tools.make_dir(folder)
             self.model.save(f"{folder}/mftmodel.keras")
-            with open(f"{folder}/state.pkl", 'wb') as fp:
-                pickle.dump(state, fp)
+            with open(f"{folder}/state.yaml", 'w') as fp:
+                yaml.dump(state, fp, default_flow_style=False)
         else:
             self.model.save(f"{self.checkpoint_dir}/best/mftmodel.keras")
-            with open(f"{self.checkpoint_dir}/best/state.pkl", 'wb') as fp:
-                pickle.dump(state, fp)
+            with open(f"{self.checkpoint_dir}/best/state.yaml", 'w') as fp:
+                yaml.dump(state, fp, default_flow_style=False)
 
 
 class MFTModelTrainer(Trainer):
@@ -74,19 +76,18 @@ class MFTModelTrainer(Trainer):
                 config,
                 model : MotionFineTuningModel,
                 train_dataloader : Human36mSotaDatasetLoader,
-                test_dataloader : Human36mSotaDatasetLoader
         ):
         super().__init__(config, model, "mftmodel")
-        self._trainset = train_dataloader
-        self._testset = test_dataloader
-        self.BATCH_SIZE = config.running.batch_size
-        self.EPOCHS = config.running.epochs
+        self._trainset, self._testset = train_dataloader.get_train_validation_datasets()
+        self._testset_size = self._trainset_size = 0
+        self.BATCH_SIZE = config["running"]["batch_size"]
+        self.EPOCHS = config["running"]["epochs"]
         self.mse = tf.keras.losses.MeanSquaredError()
         self.distance_loss = losses.DistanceLoss()
 
         # Loss weights
-        self.a = tf.constant(1.)  # position
-        self.b = tf.constant(1.)  # delta
+        self.alpha = tf.constant(1.)  # position
+        self.beta = tf.constant(1.)  # delta
 
         self.delta_converter = solvers.DeltaConverter(self.model.skeleton, 3, self.model.window)
 
@@ -132,20 +133,22 @@ class MFTModelTrainer(Trainer):
             self.test_velocity_error.reset_state()
             self.test_acceleration_error.reset_state()
 
-    def compute_losses(self, targets, predictions):
+    def compute_losses(self, targets, outputs):
+        deltas, poses = outputs
         delta_loss = tf.keras.losses.mse(
             self.delta_converter(targets, keepdims=True, format=True),
-            predictions
+            deltas
         )
-        loss = .0 + delta_loss
+        position_loss = self.distance_loss(targets, poses)
+        loss = .0 + delta_loss + position_loss
         return loss
 
     def train_epoch(self, epoch):
         def train_step(data):
             _, estimation, gt, _ = data
             with tf.GradientTape() as tape:
-                predictions, poses = self.model(estimation, training=True)
-                loss = self.compute_losses(gt, predictions)
+                deltas, poses = self.model(estimation, training=True)
+                loss = self.compute_losses(gt, [deltas, poses])
 
             gradients = tape.gradient(loss, self.model.trainable_variables)
             self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
@@ -159,14 +162,17 @@ class MFTModelTrainer(Trainer):
         counter = 0
         self.__reset_trackers__(training=True)
         logs.print_info("Epoch {}/{} - Train".format(epoch+1, self.EPOCHS))
-        for sample in self._trainset.get_dataset():
+        for sample in self._trainset:
             counter += train_step(sample)
-            percent = counter / self._trainset.total_frames()
+            if self._trainset_size != 0:
+                percent = int(counter / self._trainset_size)
+            else:
+                percent = 0
             sys.stdout.write(
                 self.epoch_log.format(
                     counter,
-                    self._trainset.total_frames(),
-                    int(percent * 100),
+                    self._trainset_size,
+                    percent,
                     self.train_loss.result().numpy(),
                     self.train_position_error.result().numpy() * 1000,
                     self.train_velocity_error.result().numpy() * 1000,
@@ -183,12 +189,14 @@ class MFTModelTrainer(Trainer):
             tf.summary.scalar('train acceleration error', self.train_acceleration_error.result(), step=epoch)
             tf.summary.scalar('train bone error', self.train_bone_error.result(), step=epoch)
             tf.summary.scalar('train velocity error', self.train_velocity_error.result(), step=epoch)
+        if self._trainset_size  == 0:
+           self._trainset_size = counter
 
     def test_epoch(self, epoch):
         def test_step(data):
             _, estimation, gt, _ = data
-            predictions, poses = self.model(estimation, training=False)
-            loss = self.compute_losses(gt, predictions)
+            deltas, poses = self.model(estimation, training=False)
+            loss = self.compute_losses(gt, [deltas, poses])
             self.test_loss.update_state(loss)
             self.test_position_error.update_state(metrics.mean_position_error(gt, poses))
             self.test_acceleration_error.update_state(metrics.mean_acceleration_error(gt, poses))
@@ -198,14 +206,17 @@ class MFTModelTrainer(Trainer):
         counter = 0
         self.__reset_trackers__(training=False)
         logs.print_info("Epoch {}/{} - Test".format(epoch+1, self.EPOCHS))
-        for sample in self._testset.get_dataset():
+        for sample in self._testset:
             counter += test_step(sample)
-            percent = counter / self._testset.total_frames()
+            if self._testset_size != 0:
+                percent = int(counter / self._trainset_size)
+            else:
+                percent = 0
             sys.stdout.write(
                 self.epoch_log.format(
                     counter,
-                    self._testset.total_frames(),
-                    int(percent * 100),
+                    self._testset_size,
+                    percent,
                     self.test_loss.result().numpy(),
                     self.test_position_error.result().numpy() * 1000,
                     self.test_velocity_error.result().numpy() * 1000,
@@ -222,6 +233,8 @@ class MFTModelTrainer(Trainer):
             tf.summary.scalar('test acceleration loss', self.test_acceleration_error.result() * 1000, step=epoch)
             tf.summary.scalar('test bone loss', self.test_bone_error.result() * 1000, step=epoch)
             tf.summary.scalar('test velocity loss', self.test_velocity_error.result() * 1000, step=epoch)
+        if self._testset_size == 0:
+            self._testset_size = counter
 
     def train(self):
         # Initialise necessary variables
@@ -255,7 +268,7 @@ class MFTModelTrainer(Trainer):
             if self.monitor_best > self.test_loss.result().numpy():
                 best = True
                 self.monitor_best = self.test_loss.result().numpy()
-            if best and epoch > 2:
+            if best: # and epoch > 2:
                 self.save_checkpoint()
                 logs.print_info("\nSaving new best checkpoints at epoch {:03d}".format(epoch))
             print()
@@ -295,14 +308,12 @@ class SkeletonModelTrainer(Trainer):
     def __init__(self,
                 config,
                 model : SkeletonModel,
-                train_dataloader : Human36mBoneDatasetLoader,
-                test_dataloader : Human36mBoneDatasetLoader
+                train_dataloader : Human36mBoneDatasetLoader
         ):
         super().__init__(config, model, "mftmodel")
-        self._trainset = train_dataloader
-        self._testset = test_dataloader
-        self.BATCH_SIZE = config.running.batch_size
-        self.EPOCHS = config.running.epochs
+        self._trainset, self._testset = train_dataloader.get_train_validation_datasets()
+        self.BATCH_SIZE = config["running"]["batch_size"]
+        self.EPOCHS = config["running"]["epochs"]
         self.mse = tf.keras.losses.MeanSquaredError()
         self.mae = tf.keras.losses.MeanAbsoluteError()
 
@@ -338,10 +349,10 @@ class SkeletonModelTrainer(Trainer):
         loss = self.mse(
             targets, predictions
         )
-        err_bone = self.mae(
+        bone_error = self.mae(
             targets, predictions
         ) # / 1000
-        return loss, err_bone
+        return loss, bone_error
 
     def train_epoch(self, epoch):
         def train_step(data):

@@ -56,7 +56,7 @@ def get_config():
     config = arguments.update_config(args)
     # version = datetime.datetime.now().strftime("%Y%m%d")
     version = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    config.running.version = version
+    config["running"]["version"] = version
     return config, args
 
 # %% Evaluation methods

@@ -4,12 +4,13 @@
 @author: mansour
 """
 # %% Imports
+from email.mime import base
+
 import keras
 
 from model.graph import laplacian as matrix
 from model.graph.skeleton import H36M_17_JOINTS_SKELETON_BONES_PAIRS, SkeletonGraph
 from model import layers, ops
-from types import SimpleNamespace
 
 
 class MotionFineTuningModel(keras.Model):
@@ -18,41 +19,40 @@ class MotionFineTuningModel(keras.Model):
     def __init__(self, config, bones_pairs : list=H36M_17_JOINTS_SKELETON_BONES_PAIRS, name="motion-fine-tuning-model", *args, **kwargs):
         kwargs['name'] = name
         super().__init__(*args, **kwargs)
-        self.params = config
-        self.joints = config.dataset.graph.skeleton.number_of_joints
-        self.skeleton = SkeletonGraph(self.joints, bones_pairs)
-        sk_conf = SimpleNamespace(number_of_joints=self.joints, bones=bones_pairs)
-        config.skeleton = sk_conf
-        self.window = config.model.arch.window
-        self.num_stages = config.model.arch.stages
-        self.residual = config.model.arch.residual
-        self.channels = config.model.arch.channels
-        self.out_features = config.model.arch.channels_out
+        self.configuration = config
+        self.joints = self.configuration["dataset"]["graph"]["skeleton"]["number_of_joints"]
+        self.bones_pairs = bones_pairs
+        self.skeleton = SkeletonGraph(self.joints, self.bones_pairs)
+        self.window = self.configuration["model"]["arch"]["window"]
+        self.num_stages = self.configuration["model"]["arch"]["stages"]
+        residual = self.configuration["model"]["arch"]["residual"]
+        channels = self.configuration["model"]["arch"]["channels"]
+        out_features = self.configuration["model"]["arch"]["channels_out"]
         self.activation = keras.activations.silu
 
         # Positional constraints will be on root.
-        self.constraints = [i * self.joints for i in range(self.window)]
-        self.pose_solver = layers.PoseSolver(self.skeleton, 3, self.window, self.constraints)
+        constraints = [i * self.joints for i in range(self.window)]
+        self.pose_solver = layers.PoseSolver(self.skeleton, 3, self.window, constraints)
         self.adj = matrix.create_normalized_matrix_A(self.skeleton, self.window, True)
         self.delta_converter = layers.DeltaConverter(self.skeleton, 3, self.window, self.pose_solver.lgs.L)
         self.graph_conv_seq = keras.Sequential([
-            layers.GraphConv(self.channels,
+            layers.GraphConv(channels,
                             self.adj,
-                            residual=self.residual,
+                            residual=residual,
                             activation=self.activation,
                             name=f"{self.name}.hidden_graph_conv_0"),
             keras.layers.LayerNormalization(axis=[-1, -2],
                                                name=f"{self.name}_norm_0"),
-            layers.GraphConv(self.channels,
+            layers.GraphConv(channels,
                             self.adj,
-                            residual=self.residual,
+                            residual=residual,
                             activation=self.activation,
                             name=f"{self.name}.hidden_graph_conv_1"),
             keras.layers.LayerNormalization(axis=[-1, -2],
                                                name=f"{self.name}_norm_1"),
-            layers.GraphConv(self.out_features,
+            layers.GraphConv(out_features,
                             self.adj,
-                            residual=self.residual,
+                            residual=residual,
                             activation=self.activation,
                             name=f"{self.name}.hidden_graph_conv_2")
         ], name=f"{self.name}.st_poses_correction")
@@ -75,11 +75,14 @@ class MotionFineTuningModel(keras.Model):
         return outputs, poses
     
     def get_config(self):
-        config = super().get_config()
-        config.update({
-            "params": self.params
-        })
-        return config
+        base_config = super().get_config()
+        config = {
+            "configuration": self.configuration,
+            "window": self.window,
+            "num_stages": self.num_stages,
+            "bones_pairs" : self.bones_pairs
+        }
+        return {**base_config, **config}
 
 
 class SkeletonModel(keras.Model):
@@ -93,38 +96,38 @@ class SkeletonModel(keras.Model):
         params : types.SimpleNamespace
             Contains the configuration parameters for the module.
         name : str, optional
-            Name for the neural network, by default "sk_model"
+            Name for the neural network, by default "skeleton-model"
         """        
         kwargs["name"] = name
         super().__init__(*args, **kwargs)
         self.params = params
-        if params:
-            self.channels = params.model.arch.channels
-            self.joints = params.dataset.graph.skeleton.number_of_joints
-            self.window = params.model.arch.window
+        if self.params:
+            channels = self.params["model"]["arch"]["channels"]
+            joints = self.params["dataset"]["graph"]["skeleton"]["number_of_joints"]
+            window = self.params["model"]["arch"]["window"]
         else:
-            self.channels = 16
-            self.joints = 17
-            self.window = 3
-        self.features_out = 10
-        self.dropout_rate = 0.2
+            channels = 16
+            joints = 17
+            window = 3
+        features_out = 10
+        dropout_rate = 0.2
 
         self.spatial_encoder = keras.Sequential([
-            layers.ConvolutionBlock(self.channels, 1, dropout_rate=self.dropout_rate),
-            layers.Residual(layers.ConvolutionBlock(self.channels, 1, dropout_rate=self.dropout_rate))
+            layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate),
+            layers.Residual(layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate))
         ], name=f"{self.name}.spatial_encoder")
 
         self.temporal_encoder = keras.Sequential([
-            layers.ConvolutionBlock(self.channels, self.window, dropout_rate=self.dropout_rate),
+            layers.ConvolutionBlock(channels, window, dropout_rate=dropout_rate),
             layers.Residual(
-                layers.ConvolutionBlock(self.channels, self.window, dropout_rate=self.dropout_rate)
+                layers.ConvolutionBlock(channels, window, dropout_rate=dropout_rate)
             ),
-            layers.ConvolutionBlock(self.channels, 1, dropout_rate=self.dropout_rate)
+            layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate)
         ], name=f"{self.name}.temporal_encoder")
         self.regression = keras.Sequential([
             keras.layers.BatchNormalization(),
             layers.AdaptiveAvgPool(1),
-            keras.layers.Conv1D(self.features_out, 1)
+            keras.layers.Conv1D(features_out, 1)
         ], name=f"{self.name}.regression")
 
     def call(self, inputs, training=None, mask=None):
@@ -135,3 +138,10 @@ class SkeletonModel(keras.Model):
         outputs = self.temporal_encoder(outputs)
         outputs = self.regression(outputs)
         return outputs
+
+    def get_config(self):
+        base_config = super().get_config()
+        config = {
+            "params": self.params
+        }
+        return {**base_config, **config}

@@ -59,7 +59,7 @@ def get_config():
     args.config = "./config/config.yaml"
     config = arguments.update_config(args)
     version = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    config.running.version = version
+    config["running"]["version"] = version
     return config, args
 
 
@@ -116,6 +116,9 @@ def test_model(config, args):
     sample_data = tf.random.uniform((64, 81, 17, 3))
     model(sample_data)
     model.summary(expand_nested=True)
+    import yaml
+    with open("test.yaml", "w") as fp:
+        yaml.dump(model.configuration, fp, default_flow_style=False)
     
 # %% Main execution
 if __name__ == "__main__":
@@ -123,6 +126,6 @@ if __name__ == "__main__":
     # parse args
     config, args = get_config()    
     # training
-    test_dataset(config, args)
-    # test_model(config, args)
+    # test_dataset(config, args)
+    test_model(config, args)
     # test_laplacian()
