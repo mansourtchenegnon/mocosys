@@ -18,11 +18,11 @@ class MotionFineTuningModel(keras.Model):
     def __init__(self, config, bones_pairs : list=H36M_17_JOINTS_SKELETON_BONES_PAIRS, name="motion-fine-tuning-model", *args, **kwargs):
         kwargs['name'] = name
         super().__init__(*args, **kwargs)
+        self.params = config
         self.joints = config.dataset.graph.skeleton.number_of_joints
         self.skeleton = SkeletonGraph(self.joints, bones_pairs)
         sk_conf = SimpleNamespace(number_of_joints=self.joints, bones=bones_pairs)
         config.skeleton = sk_conf
-        self.params = config
         self.window = config.model.arch.window
         self.num_stages = config.model.arch.stages
         self.residual = config.model.arch.residual
@@ -79,6 +79,7 @@ class MotionFineTuningModel(keras.Model):
         config.update({
             "params": self.params
         })
+        return config
 
 
 class SkeletonModel(keras.Model):

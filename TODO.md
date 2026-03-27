@@ -1,0 +1,1 @@
+* Change config object from namespace to dict for serialization

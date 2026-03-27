@@ -60,11 +60,11 @@ class Trainer:
         if epoch:
             folder = f'{self.checkpoint_dir}/ckpt-{epoch:04d}'
             tools.make_dir(folder)
-            self.model.save_weights(f"{folder}/weights.keras")
+            self.model.save(f"{folder}/mftmodel.keras")
             with open(f"{folder}/state.pkl", 'wb') as fp:
                 pickle.dump(state, fp)
         else:
-            self.model.save_weights(f"{self.checkpoint_dir}/best/weights.keras")
+            self.model.save(f"{self.checkpoint_dir}/best/mftmodel.keras")
             with open(f"{self.checkpoint_dir}/best/state.pkl", 'wb') as fp:
                 pickle.dump(state, fp)
 
@@ -248,8 +248,8 @@ class MFTModelTrainer(Trainer):
             test_acceleration_error_results.append(self.test_acceleration_error.result().numpy() * 1000)
             train_bone_error_results.append(self.train_bone_error.result().numpy() * 1000)
             test_bone_error_results.append(self.test_bone_error.result().numpy() * 1000)
-            train_velocity_error_results.append(self.train_vel_loss.result().numpy() * 1000)
-            test_velocity_error_results.append(self.test_vel_loss.result().numpy() * 1000)
+            train_velocity_error_results.append(self.train_velocity_error.result().numpy() * 1000)
+            test_velocity_error_results.append(self.test_velocity_error.result().numpy() * 1000)
 
             best = False
             if self.monitor_best > self.test_loss.result().numpy():
@@ -262,9 +262,9 @@ class MFTModelTrainer(Trainer):
             msg = self.epoch_summary.format(
                 epoch, self.EPOCHS, self.train_loss.result(), self.test_loss.result(),
                 self.train_position_error.result() * 1000, self.test_position_error.result() * 1000,
-                self.train_delta_loss.result() * 1000, self.test_delta_loss.result() * 1000,
-                self.train_bone_error.result() * 1000, self.test_bone_error.result() * 1000,
-                self.train_velocity_error.result() * 1000, self.test_velocity_error.result() * 1000
+                self.train_velocity_error.result() * 1000, self.test_velocity_error.result() * 1000,
+                self.train_acceleration_error.result() * 1000, self.test_acceleration_error.result() * 1000,
+                self.train_bone_error.result() * 1000, self.test_bone_error.result() * 1000
             )
             logs.print_info(msg)
             self.logger.info(msg)

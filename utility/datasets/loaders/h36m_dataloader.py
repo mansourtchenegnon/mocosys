@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 @author: Mansour Tchenegnon
-@version: 14.04.2025
+@version: 04.2025
 """
 import tensorflow as tf
 import numpy as np
 
-from utility.datasets.h36m_dataset import Human36mDataset, Human36mDatasetGenerator
+from utility.datasets.h36m_dataset import Human36mDatasetGenerator
 
 # To change to the folder where your .npz files are
 LOCATION = '/home/mansour/Workspace/data/human36m'

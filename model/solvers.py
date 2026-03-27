@@ -6,8 +6,6 @@ Created on Mon Jul 11 14:21:06 2022
 @author: mansour
 """
 
-from logging import raiseExceptions
-
 import keras.ops as kops
 from keras import KerasTensor
 from model.graph import laplacian

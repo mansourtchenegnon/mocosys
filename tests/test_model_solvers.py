@@ -11,6 +11,7 @@ from model.graph import skeleton
 
 class TestModelSolvers(unittest.TestCase):
     
+    @unittest.skip("Not complete!")
     def test_laplacian_graph_solver(self):
         skel = skeleton.SkeletonGraph(17, skeleton.H36M_17_JOINTS_SKELETON_BONES_PAIRS)
         # constraints = {}
