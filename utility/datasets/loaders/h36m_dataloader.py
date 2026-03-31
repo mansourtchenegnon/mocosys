@@ -138,10 +138,11 @@ class Human36mSotaDataset:
     
 
 class Human36mSotaDatasetLoader:
-    def __init__(self, training_set=True, estimation="aanet", location=LOCATION, batch_size=1, chunk_size=0, keypoints="gt", fused=False):
+    def __init__(self, training_set=True, estimation="aanet", location=LOCATION, batch_size=1, chunk_size=0, keypoints="gt", fused=False, seed=97):
         datas = Human36mSotaDataset(training_set, estimation, location, chunk_size, keypoints, fused)
         self._total_frames = datas.get_frame_count()
         self._batch_size = batch_size
+        self._seed = seed
         self._dataset, self.parameters, self._size = datas.dataset()
         # self._dataset = self._dataset.batch(batch_size)
         self._parameters = [tf.convert_to_tensor(item, dtype=tf.float32) for item in self.parameters]
@@ -153,7 +154,7 @@ class Human36mSotaDatasetLoader:
         train_size = int(self.size() * split)
         train_set = self._dataset.take(train_size)
         validation_set = self._dataset.skip(train_size)
-        return train_set.batch(self._batch_size), validation_set.batch(self._batch_size)
+        return train_set.shuffle(1000, seed=self._seed).batch(self._batch_size), validation_set.shuffle(1000, seed=self._seed).batch(self._batch_size)
     
     def get_parameters(self):
         return self._parameters

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 @author: Mansour Tchenegnon
-@version: 14.04.2025
+@version: 2025.04
 """
 
 import datetime
@@ -43,7 +43,7 @@ def parse_args():
     # Running parameters
     parser.add_argument("--batch_size", default=64, type=int, help="The batch size")
     parser.add_argument("--frames", type=int, help="Size of data cut in number of frames")
-    parser.add_argument("--epochs", default=50, type=int, help="Number of training epochs")
+    parser.add_argument("--epochs", default=5, type=int, help="Number of training epochs")
 
     # Reproducibility measure
     parser.add_argument("--seed", default=97, type=int, help="Random seed for reproducibility.")
@@ -68,7 +68,7 @@ def train_motion_fine_tuning_model(config, args):
             batch_size=config["running"]["batch_size"],
             chunk_size=config["running"]["data_cut"],
             fused=False,
-            # location="data/human36m"
+            location="data/human36m"
         )
         # testset = Human36mSotaDatasetLoader(
         #     training_set=False,
@@ -107,8 +107,10 @@ if __name__ == "__main__":
     # reproducibility measure
     if args.seed:
         keras.utils.set_random_seed(args.seed)
+        config["seed"] = args.seed
     else:
         keras.utils.set_random_seed(97)
+        config["seed"] = 97
     
     # training
     if args.arch == "mftmodel":
