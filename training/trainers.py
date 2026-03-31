@@ -10,7 +10,6 @@ import yaml
 import sys
 import time
 
-from arrow import get
 from model import losses, metrics
 from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader, Human36mSotaDatasetLoader
 import utility.logger as logs
