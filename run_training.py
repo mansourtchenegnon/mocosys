@@ -68,7 +68,7 @@ def train_motion_fine_tuning_model(config, args):
             batch_size=config["running"]["batch_size"],
             chunk_size=config["running"]["data_cut"],
             fused=False,
-            # location="data/human36m"
+            location="data/human36m"
         )
         # testset = Human36mSotaDatasetLoader(
         #     training_set=False,
