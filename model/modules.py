@@ -258,16 +258,16 @@ class MotionFineTuner(tf.Module):
 
 
     def __call__(self, inputs):
-        """Call method for the motion correction process (mocosys).
+        """Call method for the motion fine tuning process.
 
         Parameters
         ----------
-        inputs : tf.Tensor
+        inputs : Tensor
             A tensor of the estimated 3D poses sequence to correct
 
         Returns
         -------
-        tensorflow.Tensor
+        Tensor
             The corrected 3D poses sequence.
         """        
         # Motion correction

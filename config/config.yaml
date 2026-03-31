@@ -1,8 +1,5 @@
 model: # model configuration
   arch:
-    activation:
-      alpha: 0.03
-      type: relu
     channels: 128
     channels_in : 2
     channels_out : 3
@@ -18,7 +15,6 @@ running:
   version: None
 
 dataset: # dataset configuration
-  location: /share/home/tchenegn/datasets
   name: h36m
   keypoints: gt
   estimation: None

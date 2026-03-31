@@ -4,8 +4,6 @@
 @author: mansour
 """
 # %% Imports
-from email.mime import base
-
 import keras
 
 from model.graph import laplacian as matrix
@@ -103,11 +101,11 @@ class SkeletonModel(keras.Model):
         self.params = params
         if self.params:
             channels = self.params["model"]["arch"]["channels"]
-            joints = self.params["dataset"]["graph"]["skeleton"]["number_of_joints"]
+            # joints = self.params["dataset"]["graph"]["skeleton"]["number_of_joints"]
             window = self.params["model"]["arch"]["window"]
         else:
             channels = 16
-            joints = 17
+            # joints = 17
             window = 3
         features_out = 10
         dropout_rate = 0.2

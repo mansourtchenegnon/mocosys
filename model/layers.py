@@ -21,7 +21,6 @@ def identity(x):
 
 
 # %% Custom Layers
-# @keras.saving.register_keras_serializable()
 class DeltaConverter(keras.layers.Layer):
     def __init__(self, skel : SkeletonGraph, features, t, l_mat=None, sw=1.0, tw=1.0, **kwargs):
         super(DeltaConverter, self).__init__(**kwargs)
@@ -67,7 +66,6 @@ class DeltaConverter(keras.layers.Layer):
         return config
 
 
-# @keras.saving.register_keras_serializable()
 class PoseSolver(keras.layers.Layer):
     def __init__(self, skel : SkeletonGraph, features, t, constraints, l_mat=None, sw=1.0, tw=1.0, **kwargs):
         super(PoseSolver, self).__init__(**kwargs)
@@ -106,15 +104,13 @@ class PoseSolver(keras.layers.Layer):
         self.lgs.set_distance_constraints(vec_gamma)
 
     def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
+        base_config = super().get_config()
+        config = {
                 "t": self.t,
                 "v": self.v,
                 "features": self.features,
             }
-        )
-        return config
+        return {**base_config, **config}
 
 
 # %% Graph convolution layer
@@ -189,9 +185,8 @@ class GraphConv(keras.layers.Layer):
         return outputs
 
     def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
+        base_config = super().get_config()
+        config = {
                 "channels": self.channels,
                 "activation": keras.activations.serialize(self.activation),
                 "use_bias": self.use_bias,
@@ -199,11 +194,9 @@ class GraphConv(keras.layers.Layer):
                 "residual": self.residual,
                 "trainable": self.trainable
             }
-        )
-        return config
+        return {**base_config, **config}
 
 
-# @keras.saving.register_keras_serializable()
 class SkeletonGraphConv(keras.layers.Layer):
     def __init__(
             self,
@@ -268,17 +261,15 @@ class SkeletonGraphConv(keras.layers.Layer):
         return outputs
 
     def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
+        base_config = super().get_config()
+        config = {
                 "channels": self.channels,
                 "activation": keras.activations.serialize(self.activation),
                 "use_bias": self.use_bias,
                 "joints": self.joints,
                 "trainable": self.trainable
             }
-        )
-        return config
+        return {**base_config, **config}
 
 
 class SkeletonSymmetrisationLayer(keras.layers.Layer):
@@ -314,6 +305,13 @@ class SkeletonSymmetrisationLayer(keras.layers.Layer):
             axis=-1)
 
         return outputs
+    
+    def get_config(self):
+        base_config = super().get_config()
+        config = {
+            "op_type" : self.op_type
+        }
+        return {**base_config, **config}
 
 
 class PosesToSkeletonLayer(keras.layers.Layer):
@@ -357,7 +355,6 @@ class PosesToSkeletonLayer(keras.layers.Layer):
         return skeleton
 
 
-# @keras.saving.register_keras_serializable()
 class SkeletonAdjustementLayer(keras.layers.Layer):
 
     def __init__(self, **kwargs):
@@ -435,8 +432,7 @@ class SkeletonAdjustementLayer(keras.layers.Layer):
         return skeleton
 
     def get_config(self):
-        config = super().get_config()
-        return config
+        return super().get_config()
 
 
 # %% Sampling layer
@@ -458,10 +454,12 @@ class Sampling(keras.layers.Layer):
         return z_mean + keras.ops.exp(0.5 * z_log_var) * epsilon
     
     def get_config(self):
-        config = super().get_config()
-        config.update({
+        base_config = super().get_config()
+        config = {
             "seed": self.seed
-        })
+        }
+        return {**base_config, **config}
+
 
 
 class Projection(keras.layers.Layer):
@@ -474,7 +472,6 @@ class Projection(keras.layers.Layer):
         return keras.ops.expand_dims(output, axis=-1)
 
 
-# @keras.saving.register_keras_serializable()
 class Residual(keras.layers.Layer):
     def __init__(self, op, **kwargs):
         super().__init__(**kwargs)
@@ -488,7 +485,6 @@ class Residual(keras.layers.Layer):
         return config
 
 
-# @keras.saving.register_keras_serializable()
 class SkeletonSimplificationLayer(keras.layers.Layer):
 
     def __init__(self, op_type="avg", **kwargs):
@@ -531,7 +527,6 @@ class SkeletonSimplificationLayer(keras.layers.Layer):
         return config
 
 
-# @keras.saving.register_keras_serializable()
 class ConvolutionBlock(keras.layers.Layer):
     def __init__(self, channels, kernel_size, strides=1,
                  padding="SAME", normalize=False, dropout_rate=None, **kwargs):
@@ -563,9 +558,8 @@ class ConvolutionBlock(keras.layers.Layer):
         return outputs
 
     def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
+        base_config = super().get_config()
+        config = {
                 "channels": self.channels,
                 "kernel_size": self.kernel_size,
                 "normalise": self.normalise,
@@ -574,8 +568,7 @@ class ConvolutionBlock(keras.layers.Layer):
                 "padding": self.padding,
                 "activation": keras.activations.serialize(self.activation),
             }
-        )
-        return config
+        return {**base_config, **config}
 
 
 class DenseBlock(keras.layers.Layer):
@@ -605,16 +598,14 @@ class DenseBlock(keras.layers.Layer):
         return outputs
 
     def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
+        base_config = super().get_config()
+        config = {
                 "units": self.units,
                 "normalise": self.normalise,
                 "dropout_rate": self.dropout_rate,
                 "activation": keras.activations.serialize(self.activation),
             }
-        )
-        return config
+        return {**base_config, **config}
 
 
 class AdaptiveAvgPool(keras.layers.Layer):

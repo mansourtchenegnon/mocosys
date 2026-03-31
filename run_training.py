@@ -90,12 +90,11 @@ def train_skeleton_model(config, args):
     # Load dataset
     if args.dataset == "h36m":
         trainset = Human36mBoneDatasetLoader(keypoints="gt", batch_size=config.running.batch_size, chunk_size=config.running.data_cut)
-        testset = Human36mBoneDatasetLoader(training_set=False, batch_size=config.running.batch_size, keypoints="gt", chunk_size=243)
     else:
         raise Exception(f"Dataset {args.dataset} not recognized !")
     # Create model and trainer
     model = SkeletonModel(config)
-    trainer = SkeletonModelTrainer(config, model, trainset, testset)
+    trainer = SkeletonModelTrainer(config, model, trainset)
     # Start training
     trainer.train()
 
