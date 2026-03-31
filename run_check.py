@@ -95,7 +95,7 @@ def test_dataset(config, args):
     # h36m sota dataset
     dataset = Human36mSotaDatasetLoader(
         training_set=False,
-        batch_size=config.running.batch_size,
+        batch_size=config["running"]["batch_size"],
         keypoints="cpn", chunk_size=243, fused=False,
         # location="data/human36m"
         )
@@ -109,6 +109,13 @@ def test_dataset(config, args):
     # display.generate_3d_animation(gt[0] * 1000, "sample")
     # animation.animate_motions_vs(gt[0] * 1000, est[0] * 1000)
     # animation.save_animate_motion(gt[0] * 1000, "sample.avi")
+    # animation.animate_motion(gt[0] * 1000)
+
+def test_animation():
+    gt = numpy.load("data/poses.npy")
+    from rendering import display, animation
+    # display.generate_3d_animation(gt * 1000, "sample")
+    animation.animate_motion(gt)
 
 def test_model(config, args):
     ## Test model
@@ -127,5 +134,6 @@ if __name__ == "__main__":
     config, args = get_config()    
     # training
     # test_dataset(config, args)
-    test_model(config, args)
+    # test_model(config, args)
     # test_laplacian()
+    test_animation()

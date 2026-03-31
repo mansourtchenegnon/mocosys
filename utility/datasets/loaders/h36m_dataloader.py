@@ -148,7 +148,7 @@ class Human36mSotaDatasetLoader:
         self._parameters = [tf.convert_to_tensor(item, dtype=tf.float32) for item in self.parameters]
 
     def get_dataset(self):
-        return self._dataset
+        return self._dataset.batch(self._batch_size)
     
     def get_train_validation_datasets(self, split=0.8):
         train_size = int(self.size() * split)
