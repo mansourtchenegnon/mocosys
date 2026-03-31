@@ -26,9 +26,9 @@ ES = [
     [15, 16],  # radius r
 ]
 
-scene.width = 1920
-scene.height = 1080
-scene.autoscale = True
+scene.width = 1600
+scene.height = 900
+# scene.autoscale = True
 scene.background = color.gray(0.5)
 # scene.autoscale = 0
 RADIUS = 20.0
@@ -52,20 +52,29 @@ class Plot3DPose:
         for i in range(self.joint_count):
             self.joints.append(sphere(
                 pos=self.get_position(0, i),
-                radius=RADIUS + 5.0,
+                radius=RADIUS,
                 color=self.color
             ))
 
     def make_bones(self):
         for i, j in ES:
             self.bones.append(
-                cylinder(
+                cone(
                     pos=self.get_position(0, i),
                     axis=self.get_position(0, j) - self.get_position(0, i),
                     radius=RADIUS,
                     color=self.color
                 )
             )
+            # self.bones.append(
+            #     pyramid(
+            #         pos=self.get_position(0, i),
+            #         axis=self.get_position(0, j) - self.get_position(0, i),
+            #         width=RADIUS,
+            #         height=RADIUS,
+            #         color=self.color
+            #     )
+            # )
 
     def update(self, t):
         f = t % self.frames
@@ -384,10 +393,9 @@ def animate_motion(poses):
     run = True
     t = 0
     while run:
-        rate(10)
+        rate(30)
         if run:
             plotter.update(t)
-            scene.capture(f"shots{t:06d}")
             t += 1
         if t > plotter.frames:
             run = False
