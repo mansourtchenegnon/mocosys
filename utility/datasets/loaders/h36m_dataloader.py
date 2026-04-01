@@ -288,6 +288,8 @@ class Human36mBoneDatasetLoader:
             self._inputs2d = np.concatenate(poses_2d, axis=0)
             targets3d = np.concatenate(poses_3d, axis=0)
             self._bones = h36m_17_get_bones(targets3d)
+            self._bones_means = np.mean(self._bones)
+            # TODO : normalise bones length
             self._names = codenames
             self._cut_names = []
             self.sequence_index = None
@@ -341,6 +343,7 @@ class Human36mBoneDatasetLoader:
                 output_signature=(
                     tf.TensorSpec(shape=(None, 17, 2), dtype=tf.float32),
                     tf.TensorSpec(shape=(None, 10), dtype=tf.float32),
+                    tf.TensorSpec(shape=(None, 1), dtype=tf.float32),
                     tf.TensorSpec(shape=(), dtype=tf.string))
                 )
             return ds
