@@ -15,7 +15,7 @@ from model.models import MotionFineTuningModel
 from model.solvers import DeltaConverter, LaplacianGraphSolver, PosesConverter
 from model import ops, layers
 from utility import arguments
-from utility.datasets.loaders.h36m_dataloader import Human36mDatasetLoader, Human36mSotaDatasetLoader
+from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader, Human36mDatasetLoader, Human36mSotaDatasetLoader
 
 # %% Arguments parsing and configuration
 def parse_args():
@@ -93,17 +93,29 @@ def test_dataset(config, args):
     # _, gt, _ = next(iterator)
     
     # h36m sota dataset
-    dataset = Human36mSotaDatasetLoader(
-        training_set=False,
-        batch_size=config["running"]["batch_size"],
-        keypoints="cpn", chunk_size=243, fused=False,
-        # location="data/human36m"
-        )
+    # dataset = Human36mSotaDatasetLoader(
+    #     training_set=False,
+    #     batch_size=config["running"]["batch_size"],
+    #     keypoints="cpn", chunk_size=243, fused=False,
+    #     # location="data/human36m"
+    #     )
+    # iterator = iter(dataset.get_dataset())
+    # inp, est, gt, _ = next(iterator)
+    # print("input", inp.shape)
+    # print("estimation", est.shape)
+    # print("gt", gt.shape)
+
+    # h36m bone dataset
+    dataset = Human36mBoneDatasetLoader(
+        training_set=True, batch_size=config["running"]["batch_size"],
+        chunk_size=243
+    )
     iterator = iter(dataset.get_dataset())
-    inp, est, gt, _ = next(iterator)
-    print("input", inp.shape)
-    print("estimation", est.shape)
-    print("gt", gt.shape)
+    inputs, bones, bones_norm, _ = next(iterator)
+    print("inputs", inputs.shape)
+    print("bones", bones.shape, bones[0][0])
+    print("bone norm", bones_norm.shape, bones_norm[0][0])
+    print("bones mean/std", dataset.get_bones_mean_std())
     
     # from rendering import display, animation
     # display.generate_3d_animation(gt[0] * 1000, "sample")
@@ -133,7 +145,7 @@ if __name__ == "__main__":
     # parse args
     config, args = get_config()    
     # training
-    # test_dataset(config, args)
+    test_dataset(config, args)
     # test_model(config, args)
     # test_laplacian()
-    test_animation()
+    # test_animation()

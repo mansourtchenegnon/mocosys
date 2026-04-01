@@ -554,7 +554,12 @@ class ConvolutionBlock(keras.layers.Layer):
         if self.norm:
             outputs = self.norm(outputs)
         if self.dropout:
-            outputs = self.dropout(outputs)
+            if "training" in kwargs:
+                training = kwargs["training"]
+            else:
+                training = False
+            outputs = self.dropout(outputs, training=training)
+            
         return outputs
 
     def get_config(self):

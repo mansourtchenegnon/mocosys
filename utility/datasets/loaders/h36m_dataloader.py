@@ -7,6 +7,7 @@
 import tensorflow as tf
 import numpy as np
 
+from utility import tools
 from utility.datasets.h36m_dataset import Human36mDatasetGenerator
 
 # To change to the folder where your .npz files are
@@ -178,9 +179,9 @@ class Human36mDatasetLoader:
             for i in range(len(poses_3d)):
                 self._frames_count.append(poses_3d[i].shape[0])
             self._inputs2d = np.concatenate(poses_2d, axis=0)
-            self._targets3d = np.concatenate(poses_3d, axis=0)
-            self._root3d = self._targets3d[:, [0], :]
-            self._targets3d[:, 0, :] = 0
+            self._targets3d = np.concatenate(poses_3d, axis=0)  # [global root + root related joints]
+            self._root3d = self._targets3d[:, [0], :]  # get global root trajectory
+            self._targets3d[:, 0, :] = 0  # remove global root trajectory
             self._names = codenames
             self._cut_names = []
             self.sequence_index = None
@@ -256,12 +257,13 @@ class Human36mDatasetLoader:
         else:
             subjects = ["S9", "S11"]
         camera_params, poses_3d, poses_2d, codenames = data_generator.generate(subjects)
+        self._batch_size = batch_size
         self._tf_dataset = Human36mDatasetLoader.TFDataset(camera_params, poses_3d, poses_2d, codenames, chunk_size)
         self._dataset = self._tf_dataset.generate_dataset()
-        self._dataset = self._dataset.batch(batch_size)
+        # self._dataset = self._dataset.batch(batch_size)
     
     def get_dataset(self):
-        return self._dataset
+        return self._dataset.batch(self._batch_size)
     
     def get_parameters(self):
         return self._parameters
@@ -286,10 +288,13 @@ class Human36mBoneDatasetLoader:
             for i in range(len(poses_3d)):
                 self._frames_count.append(poses_3d[i].shape[0])
             self._inputs2d = np.concatenate(poses_2d, axis=0)
-            targets3d = np.concatenate(poses_3d, axis=0)
+            targets3d = np.concatenate(poses_3d, axis=0)  # except root, all other joints are root related
+            root3d = targets3d[:, [0], :]  # root contains the trajectory
+            targets3d[:, 0, :] = 0  # remove root trajectory
             self._bones = h36m_17_get_bones(targets3d)
-            self._bones_means = np.mean(self._bones)
+            # self._bones_means = np.mean(self._bones)
             # TODO : normalise bones length
+            self._bones_normalised, self._bones_mean, self._bones_std = tools.normalize_data(self._bones)
             self._names = codenames
             self._cut_names = []
             self.sequence_index = None
@@ -327,9 +332,9 @@ class Human36mBoneDatasetLoader:
         def __getitem__(self, idx):
             index = self.sequence_index[idx]
             if self._chunk_size != 0:
-                return self._inputs2d[index], self._bones[index], self._cut_names[idx]
+                return self._inputs2d[index], self._bones[index], self._bones_normalised[index], self._cut_names[idx]
             else:
-                return self._inputs2d[index], self._bones[index], self._names[idx] 
+                return self._inputs2d[index], self._bones[index], self._bones_normalised[index], self._names[idx] 
         
         def __generator__(self):
             i = 0
@@ -343,13 +348,16 @@ class Human36mBoneDatasetLoader:
                 output_signature=(
                     tf.TensorSpec(shape=(None, 17, 2), dtype=tf.float32),
                     tf.TensorSpec(shape=(None, 10), dtype=tf.float32),
-                    tf.TensorSpec(shape=(None, 1), dtype=tf.float32),
+                    tf.TensorSpec(shape=(None, 10), dtype=tf.float32),
                     tf.TensorSpec(shape=(), dtype=tf.string))
                 )
             return ds
+        
+        def get_bones_mean_std(self):
+            return self._bones_mean, self._bones_std
 
     def __init__(self, training_set=True, batch_size=1, chunk_size=0, keypoints="gt"):
-        keypoints_path = f'./data/h36m/data_2d_h36m_{KEYPOINT_TYPE[keypoints]}.npz'
+        keypoints_path = f'./data/human36m/data_2d_h36m_{KEYPOINT_TYPE[keypoints]}.npz'
         data_generator = Human36mDatasetGenerator(keypoints_path=keypoints_path)
         if training_set:
             subjects = ["S1","S5","S6","S7","S8"]
@@ -361,8 +369,11 @@ class Human36mBoneDatasetLoader:
         self._batch_size = batch_size
         # self._dataset = self._dataset.batch(batch_size)
     
+    def get_tf_dataset(self):
+        return self._tf_dataset
+    
     def get_dataset(self):
-        return self._dataset
+        return self._dataset.batch(self._batch_size)
     
     def get_train_validation_datasets(self, split=0.8):
         train_size = int(self.size() * split)
@@ -373,6 +384,9 @@ class Human36mBoneDatasetLoader:
     def get_parameters(self):
         return self._parameters
     
+    def get_bones_mean_std(self):
+        return self._tf_dataset.get_bones_mean_std()
+    
     def size(self):
         return len(self._tf_dataset)
     
@@ -382,7 +396,7 @@ class Human36mBoneDatasetLoader:
 
 def h36m_17_get_bones(positions):
     def distance(start, end):
-        return np.sqrt(np.sum(np.square(start - end), axis=-1))
+        return np.linalg.norm(start - end, axis=-1)
 
     length = np.zeros((positions.shape[0], 10))
     length[:, 0] = (
@@ -392,7 +406,7 @@ def h36m_17_get_bones(positions):
     length[:, 1] = (
         distance(positions[:, 1, :], positions[:, 2, :])
         + distance(positions[:, 4, :], positions[:, 5, :])
-    ) / 2
+    ) / 2  # 
     length[:, 2] = (
         distance(positions[:, 2, :], positions[:, 3, :])
         + distance(positions[:, 5, :], positions[:, 6, :])

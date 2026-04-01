@@ -218,7 +218,7 @@ def get_human_36m_skeleton():
 
 
 class Human36mDataset(MocapDataset):
-    def __init__(self, path="./data/h36m/data_3d_h36m.npz", keypoints_path="./data/h36m/data_2d_h36m_gt.npz", remove_static_joints=True):
+    def __init__(self, path="./data/human36m/data_3d_h36m.npz", keypoints_path="./data/human36m/data_2d_h36m_gt.npz", remove_static_joints=True):
         """Constructor for the Human36m dataset.
         This class is used to load the Human36m dataset and its associated 2D and 3D keypoints.
         The 3D keypoints are loaded from a serialized file and the 2D keypoints are loaded from a separate file.
@@ -228,7 +228,7 @@ class Human36mDataset(MocapDataset):
         path : str, optional
             Path to the serialized file for 3D keypoints, by default "./data/h36m/data_3d_h36m.npz"
         keypoints_path : str, optional
-            _description_, by default "./data/h36m/data_2d_h36m_gt.npz"
+            _description_, by default "./data/human36m/data_2d_h36m_gt.npz"
         remove_static_joints : bool, optional
             Whether to remove static joints from skeleton, by default True.
         """
@@ -424,8 +424,8 @@ class Human36mDataset(MocapDataset):
 
 class Human36mDatasetGenerator:
     def __init__(self,
-                 path="./data/h36m/data_3d_h36m.npz",
-                 keypoints_path="./data/data_2d_h36m_gt.npz",
+                 path="./data/human36m/data_3d_h36m.npz",
+                 keypoints_path="./data/human36m/data_2d_h36m_gt.npz",
                  remove_static_joints=True):
         self._dataset = Human36mDataset(path, keypoints_path, remove_static_joints)
 

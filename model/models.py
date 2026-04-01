@@ -5,7 +5,7 @@
 """
 # %% Imports
 import keras
-
+import keras.ops as kops
 from model.graph import laplacian as matrix
 from model.graph.skeleton import H36M_17_JOINTS_SKELETON_BONES_PAIRS, SkeletonGraph
 from model import layers, ops
@@ -109,6 +109,8 @@ class SkeletonModel(keras.Model):
             window = 3
         features_out = 10
         dropout_rate = 0.2
+        self.normalization_mean = 0.0
+        self.normalization_std = 1.0
 
         self.spatial_encoder = keras.Sequential([
             layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate),
@@ -128,15 +130,31 @@ class SkeletonModel(keras.Model):
             keras.layers.Conv1D(features_out, 1)
         ], name=f"{self.name}.regression")
 
-    def call(self, inputs, training=None, mask=None):
+    def call(self, inputs, training=False):
         kwargs = {}
         kwargs['training'] = training
-        kwargs['mask'] = mask
-        outputs = self.spatial_encoder(inputs)
-        outputs = self.temporal_encoder(outputs)
+        outputs = self.spatial_encoder(inputs, training=training)
+        outputs = self.temporal_encoder(outputs, training=training)
         outputs = self.regression(outputs)
         return outputs
+    
+    def forward_denormalized(self, inputs):
+        outputs = self.call(inputs)
+        return self._denormalize_data(outputs)
+    
+    def set_normalization_parameters(self, mean, std):
+        self.normalization_mean = mean
+        self.normalization_std = std
+    
+    def _normalize_data(self, data):
+        mean = kops.ones(data.shape, dtype='float32') * self.normalization_mean
+        std = kops.ones(data.shape, dtype='float32') * self.normalization_std
+        normalized_data = kops.divide(data - mean, std)
+        return normalized_data
 
+    def _denormalize_data(self, data):
+        return (data * self.normalization_std) + self.normalization_mean
+    
     def get_config(self):
         base_config = super().get_config()
         config = {
