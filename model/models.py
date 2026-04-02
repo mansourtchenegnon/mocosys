@@ -153,7 +153,10 @@ class SkeletonModel(keras.Model):
         return normalized_data
 
     def _denormalize_data(self, data):
-        return (data * self.normalization_std) + self.normalization_mean
+        D = self.normalization_mean.shape[0]  # Dimensionality
+        std = kops.repeat(self.normalization_std, list(data.shape[:-1] + [D]))
+        mean = kops.repeat(self.mean, list(data.shape[:-1] + [D]))
+        return kops.multiply(data * std) + mean
     
     def get_config(self):
         base_config = super().get_config()
