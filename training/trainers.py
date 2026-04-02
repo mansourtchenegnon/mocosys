@@ -347,7 +347,7 @@ class SkeletonModelTrainer(Trainer):
 
     def train_epoch(self, epoch):
         def train_step(data):
-            poses2d, bones_gt, _ = data
+            poses2d, bones_gt, bones_norm, _ = data
             with tf.GradientTape() as tape:
                 predictions = self.model(poses2d, training=True)
                 loss, loss_bone = self.compute_losses(bones_gt, predictions)
