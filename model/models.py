@@ -109,8 +109,8 @@ class SkeletonModel(keras.Model):
             window = 3
         features_out = 10
         dropout_rate = 0.2
-        self.normalization_mean = 0.0
-        self.normalization_std = 1.0
+        self._normalization_mean = []
+        self._normalization_std = []
 
         self.spatial_encoder = keras.Sequential([
             layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate),
@@ -143,24 +143,34 @@ class SkeletonModel(keras.Model):
         return self._denormalize_data(outputs)
     
     def set_normalization_parameters(self, mean, std):
-        self.normalization_mean = mean
-        self.normalization_std = std
+        self._normalization_mean = mean
+        self._normalization_std = std
     
     def _normalize_data(self, data):
-        mean = kops.ones(data.shape, dtype='float32') * self.normalization_mean
-        std = kops.ones(data.shape, dtype='float32') * self.normalization_std
+        mean = kops.ones(data.shape, dtype='float32') * self._normalization_mean
+        std = kops.ones(data.shape, dtype='float32') * self._normalization_std
         normalized_data = kops.divide(data - mean, std)
         return normalized_data
 
     def _denormalize_data(self, data):
         D = self.normalization_mean.shape[0]  # Dimensionality
-        std = kops.repeat(self.normalization_std, list(data.shape[:-1] + [D]))
-        mean = kops.repeat(self.mean, list(data.shape[:-1] + [D]))
+        shape = [1 for i in range(len(data.shape)-1)] + [D]
+        repeat = list(data.shape[:-1]) + [1]
+        std = kops.tile(
+            kops.reshape(self._normalization_std, shape),
+            repeat
+        )
+        mean = kops.tile(
+            kops.reshape(self._normalization_mean, shape),
+            repeat
+        )
         return kops.multiply(data * std) + mean
     
     def get_config(self):
         base_config = super().get_config()
         config = {
-            "params": self.params
+            "params": self.params,
+            "norm_mean": self._normalization_mean,
+            "norm_std": self._normalization_std
         }
         return {**base_config, **config}

@@ -15,6 +15,7 @@ from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader, 
 import utility.logger as logs
 import utility.tools as tools
 import tensorflow as tf
+from keras import ops as kops
 
 from model import solvers
 from model.models import MotionFineTuningModel, SkeletonModel
@@ -70,7 +71,8 @@ class MFTModelTrainer(Trainer):
         ):
         super().__init__(config, model, "mftmodel")
         self._trainset, self._testset = train_dataloader.get_train_validation_datasets()
-        self._testset_size = self._trainset_size = None
+        self._trainset_size = 0
+        self._testset_size = 0
         self.BATCH_SIZE = config["running"]["batch_size"]
         self.EPOCHS = config["running"]["epochs"]
         self.mse = tf.keras.losses.MeanSquaredError()
@@ -155,15 +157,15 @@ class MFTModelTrainer(Trainer):
         logs.print_info("Epoch {}/{} - Train".format(epoch, self.EPOCHS))
         for sample in self._trainset:
             counter += train_step(sample)
-            if self._trainset_size:
-                percent = int(counter / self._trainset_size)
-            else:
+            if self._trainset_size == 0:
                 percent = 0
+            else:
+                percent = counter / self._trainset_size
             sys.stdout.write(
                 self.epoch_log.format(
                     counter,
                     self._trainset_size,
-                    percent,
+                    int(percent * 100),
                     self.train_loss.result().numpy(),
                     self.train_position_error.result().numpy() * 1000,
                     self.train_velocity_error.result().numpy() * 1000,
@@ -174,8 +176,10 @@ class MFTModelTrainer(Trainer):
             sys.stdout.flush()
         print()
         print("---"*5)
-        if self._trainset_size is None:
+
+        if self._trainset_size == 0:
            self._trainset_size = counter
+
         with self.train_summary_writer.as_default():
             tf.summary.scalar('train loss', self.train_loss.result(), step=epoch)
             tf.summary.scalar('train position error', self.train_position_error.result(), step=epoch)
@@ -199,15 +203,15 @@ class MFTModelTrainer(Trainer):
         logs.print_info("Epoch {}/{} - Test".format(epoch, self.EPOCHS))
         for sample in self._testset:
             counter += test_step(sample)
-            if self._testset_size:
-                percent = int(counter / self._testset_size)
-            else:
+            if self._testset_size == 0:
                 percent = 0
+            else:
+                percent = counter / self._testset_size
             sys.stdout.write(
                 self.epoch_log.format(
                     counter,
                     self._testset_size,
-                    percent,
+                    int(percent * 100),
                     self.test_loss.result().numpy(),
                     self.test_position_error.result().numpy() * 1000,
                     self.test_velocity_error.result().numpy() * 1000,
@@ -216,8 +220,10 @@ class MFTModelTrainer(Trainer):
                 )
             )
             sys.stdout.flush()
-        if self._testset_size is None:
+
+        if self._testset_size == 0:
             self._testset_size = counter
+
         print()
         print("---"*5)
         with self.train_summary_writer.as_default():
@@ -295,14 +301,17 @@ class MFTModelTrainer(Trainer):
 
 
 class SkeletonModelTrainer(Trainer):
-    # TODO: complete this class
     def __init__(self,
                 config,
                 model : SkeletonModel,
                 train_dataloader : Human36mBoneDatasetLoader
         ):
-        super().__init__(config, model, "mftmodel")
+        super().__init__(config, model, "skelmodel")
         self._trainset, self._testset = train_dataloader.get_train_validation_datasets()
+        self.normalization_mean, self.normalization_std = train_dataloader.get_bones_mean_std()
+        model.set_normalization_parameters(self.normalization_mean, self.normalization_std)
+        self._trainset_size = 0
+        self._testset_size = 0
         self.BATCH_SIZE = config["running"]["batch_size"]
         self.EPOCHS = config["running"]["epochs"]
         self.mse = tf.keras.losses.MeanSquaredError()
@@ -314,8 +323,8 @@ class SkeletonModelTrainer(Trainer):
         # Metrics to track losses
         self.train_loss = tf.keras.metrics.Mean(name="train_loss")
         self.test_loss = tf.keras.metrics.Mean(name="test_loss")
-        self.train_bone_loss = tf.keras.metrics.Mean(name="train_bone_loss")
-        self.test_bone_loss = tf.keras.metrics.Mean(name="test_bone_loss")
+        self.train_bone_error = tf.keras.metrics.Mean(name="train_bone_error")
+        self.test_bone_error = tf.keras.metrics.Mean(name="test_bone_error")
         
         self.save_freq = 10
         self.monitor_best = math.inf
@@ -330,24 +339,25 @@ class SkeletonModelTrainer(Trainer):
     def __reset_trackers__(self, training=True):
         if training:
             self.train_loss.reset_state()
-            self.train_bone_loss.reset_state()
+            self.train_bone_error.reset_state()
         else:
             self.test_loss.reset_state()
-            self.test_bone_loss.reset_state()
+            self.test_bone_error.reset_state()
 
     def compute_losses(self, targets, predictions):
-        targets = tf.reduce_max(targets, axis=1, keepdims=True)
+        targets = kops.max(targets, axis=1, keepdims=True)
         loss = self.mse(
             targets, predictions
         )
         bone_error = self.mae(
-            targets, predictions
+            tools.denormalise(targets, self.normalization_mean, self.normalization_std),
+            tools.denormalise(predictions, self.normalization_mean, self.normalization_std)
         ) # / 1000
         return loss, bone_error
 
     def train_epoch(self, epoch):
         def train_step(data):
-            poses2d, bones_gt, bones_norm, _ = data
+            poses2d, bones_gt, _ = data
             with tf.GradientTape() as tape:
                 predictions = self.model(poses2d, training=True)
                 loss, loss_bone = self.compute_losses(bones_gt, predictions)
@@ -355,30 +365,37 @@ class SkeletonModelTrainer(Trainer):
             gradients = tape.gradient(loss, self.model.trainable_variables)
             self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
             self.train_loss.update_state(loss)
-            self.train_bone_loss.update_state(loss_bone)
+            self.train_bone_error.update_state(loss_bone)
             return poses2d.shape[0] * poses2d.shape[1]
         
         counter = 0
         self.__reset_trackers__(training=True)
         logs.print_info("Epoch {}/{} - Train".format(epoch+1, self.EPOCHS))
-        for sample in self._trainset.get_dataset():
+        for sample in self._trainset:
             counter += train_step(sample)
-            percent = counter / self._trainset.total_frames()
+            if self._trainset_size == 0:
+                percent = 0
+            else:
+                percent = counter / self._trainset_size
             sys.stdout.write(
                 self.epoch_log.format(
                     counter,
-                    self._trainset.total_frames(),
+                    self._trainset_size,
                     int(percent * 100),
                     self.train_loss.result().numpy(),
-                    self.train_bone_loss.result().numpy(),
+                    self.train_bone_error.result().numpy() * 1000,
                 )
             )
             sys.stdout.flush()
         print()
         print("---"*5)
+
+        if self._trainset_size == 0:
+            self._trainset_size = counter
+
         with self.train_summary_writer.as_default():
-            tf.summary.scalar('loss', self.train_loss.result(), step=epoch)
-            tf.summary.scalar('bone loss', self.train_bone_loss.result(), step=epoch)
+            tf.summary.scalar('train loss', self.train_loss.result(), step=epoch)
+            tf.summary.scalar('train bone error', self.train_bone_error.result(), step=epoch)
 
     def test_epoch(self, epoch):
         def test_step(data):
@@ -386,29 +403,36 @@ class SkeletonModelTrainer(Trainer):
             predictions = self.model(poses2d, training=False)
             loss, loss_bone = self.compute_losses(bones_gt, predictions)
             self.test_loss.update_state(loss)
-            self.test_bone_loss.update_state(loss_bone)
+            self.test_bone_error.update_state(loss_bone)
             return poses2d.shape[0] * poses2d.shape[1]
         counter = 0
         self.__reset_trackers__(training=False)
         logs.print_info("Epoch {}/{} - Test".format(epoch+1, self.EPOCHS))
-        for sample in self._testset.get_dataset():
+        for sample in self._testset:
             counter += test_step(sample)
-            percent = counter / self._testset.total_frames()
+            if self._testset_size == 0:
+                percent = 0
+            else:
+                percent = counter / self._testset_size
             sys.stdout.write(
                 self.epoch_log.format(
                     counter,
-                    self._testset.total_frames(),
+                    self._testset_size,
                     int(percent * 100),
                     self.test_loss.result().numpy(),
-                    self.test_bone_loss.result().numpy(),
+                    self.test_bone_error.result().numpy() * 1000,
                 )
             )
             sys.stdout.flush()
         print()
         print("---"*5)
+
+        if self._testset_size == 0:
+            self._testset_size = counter
+
         with self.train_summary_writer.as_default():
-            tf.summary.scalar('loss', self.test_loss.result(), step=epoch)
-            tf.summary.scalar('bone loss', self.test_bone_loss.result(), step=epoch)
+            tf.summary.scalar('test loss', self.test_loss.result(), step=epoch)
+            tf.summary.scalar('test bone error', self.test_bone_error.result() * 1000, step=epoch)
 
     def train(self):
         t = time.time()
@@ -420,12 +444,12 @@ class SkeletonModelTrainer(Trainer):
                 best = True
                 self.monitor_best = self.test_loss.result().numpy()
             if best and epoch > 2:
-                self.save_checkpoint()
+                self.save_checkpoint(epoch=epoch)
                 logs.print_info("\nSaving new best checkpoints at epoch {:03d}".format(epoch))
             print()
             msg = self.epoch_summary.format(
                 epoch, self.EPOCHS, self.train_loss.result(), self.test_loss.result(),
-                self.train_bone_loss.result(), self.test_bone_loss.result(),
+                self.train_bone_error.result() * 1000, self.test_bone_error.result() * 1000,
             )
             logs.print_info(msg)
             print("===" * 10)

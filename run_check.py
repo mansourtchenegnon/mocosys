@@ -12,10 +12,8 @@ import keras.ops as kops
 import numpy
 from model.graph import skeleton
 from model.models import MotionFineTuningModel
-from model.solvers import DeltaConverter, LaplacianGraphSolver, PosesConverter
 from model import ops, layers
-from utility import arguments
-from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader, Human36mDatasetLoader, Human36mSotaDatasetLoader
+from utility import arguments, tools
 
 # %% Arguments parsing and configuration
 def parse_args():
@@ -88,11 +86,13 @@ def test_laplacian():
 def test_dataset(config, args):
     ## Test dataset
     # h36m default data
+    # from utility.datasets.loaders.h36m_dataloader import Human36mDatasetLoader
     # dataset = Human36mDatasetLoader(training_set=False, batch_size=config.running.batch_size, keypoints="gt", chunk_size=243)
     # iterator = iter(dataset.get_dataset())
     # _, gt, _ = next(iterator)
     
     # h36m sota dataset
+    # from utility.datasets.loaders.h36m_dataloader import Human36mSotaDatasetLoader
     # dataset = Human36mSotaDatasetLoader(
     #     training_set=False,
     #     batch_size=config["running"]["batch_size"],
@@ -106,16 +106,19 @@ def test_dataset(config, args):
     # print("gt", gt.shape)
 
     # h36m bone dataset
+    from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader
     dataset = Human36mBoneDatasetLoader(
         training_set=True, batch_size=config["running"]["batch_size"],
         chunk_size=243
     )
     iterator = iter(dataset.get_dataset())
-    inputs, bones, bones_norm, _ = next(iterator)
+    inputs, bones, _ = next(iterator)
     print("inputs", inputs.shape)
     print("bones", bones.shape, bones[0][0])
-    print("bone norm", bones_norm.shape, bones_norm[0][0])
-    print("bones mean/std", dataset.get_bones_mean_std())
+    mean, std = dataset.get_bones_mean_std()
+    print("bones mean/std", mean.shape, mean.dtype, std.shape, std.dtype)
+    denorm_bones = tools.denormalise(bones, mean, std)
+    print("bones denorm", denorm_bones.shape, denorm_bones[0][0]*1000)
     
     # from rendering import display, animation
     # display.generate_3d_animation(gt[0] * 1000, "sample")
@@ -125,8 +128,7 @@ def test_dataset(config, args):
 
 def test_animation():
     gt = numpy.load("data/poses.npy")
-    from rendering import display, animation
-    # display.generate_3d_animation(gt * 1000, "sample")
+    from rendering import animation
     animation.animate_motion(gt)
 
 def test_model(config, args):
@@ -135,9 +137,9 @@ def test_model(config, args):
     sample_data = tf.random.uniform((64, 81, 17, 3))
     model(sample_data)
     model.summary(expand_nested=True)
-    import yaml
-    with open("test.yaml", "w") as fp:
-        yaml.dump(model.configuration, fp, default_flow_style=False)
+    # import yaml
+    # with open("test.yaml", "w") as fp:
+    #     yaml.dump(model.configuration, fp, default_flow_style=False)
     
 # %% Main execution
 if __name__ == "__main__":

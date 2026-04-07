@@ -169,13 +169,14 @@ class Human36mSotaDatasetLoader:
 
 class Human36mDatasetLoader:
     class TFDataset:
-        def __init__(self, camera_params, poses_3d, poses_2d, codenames, chunk_size=0):
+        def __init__(self, camera_params, poses_3d, poses_2d, codenames, chunk_size=0, fused=False):
             self._inputs2d = []
             self._targets3d = []
             self._camera_params = camera_params
             self._names = []
             self._frames_count = []
             self._chunk_size = chunk_size
+            self._fused = fused
             for i in range(len(poses_3d)):
                 self._frames_count.append(poses_3d[i].shape[0])
             self._inputs2d = np.concatenate(poses_2d, axis=0)
@@ -183,6 +184,9 @@ class Human36mDatasetLoader:
             self._root3d = self._targets3d[:, [0], :]  # get global root trajectory
             self._targets3d[:, 0, :] = 0  # remove global root trajectory
             self._names = codenames
+            if self._fused:
+                self._inputs2d = np.reshape(self._inputs2d.shape[0], (self._inputs2d.shape[0], -1))
+                self._targets3d = np.reshape(self._targets3d, (self._targets3d.shape[0], -1))
             self._cut_names = []
             self.sequence_index = None
             self.__set_sequences__()
@@ -249,7 +253,7 @@ class Human36mDatasetLoader:
                 )
             return ds
     
-    def __init__(self, training_set=True, batch_size=1, chunk_size=0, keypoints="gt"):
+    def __init__(self, training_set=True, batch_size=1, chunk_size=0, keypoints="gt", fused=False):
         keypoints_path = f'./data/h36m/data_2d_h36m_{KEYPOINT_TYPE[keypoints]}.npz'
         data_generator = Human36mDatasetGenerator(keypoints_path=keypoints_path)
         if training_set:
@@ -258,7 +262,7 @@ class Human36mDatasetLoader:
             subjects = ["S9", "S11"]
         camera_params, poses_3d, poses_2d, codenames = data_generator.generate(subjects)
         self._batch_size = batch_size
-        self._tf_dataset = Human36mDatasetLoader.TFDataset(camera_params, poses_3d, poses_2d, codenames, chunk_size)
+        self._tf_dataset = Human36mDatasetLoader.TFDataset(camera_params, poses_3d, poses_2d, codenames, chunk_size, fused)
         self._dataset = self._tf_dataset.generate_dataset()
         # self._dataset = self._dataset.batch(batch_size)
     
@@ -278,23 +282,24 @@ class Human36mDatasetLoader:
 
 class Human36mBoneDatasetLoader:
     class TFBoneDataset:
-        def __init__(self, camera_params, poses_3d, poses_2d, codenames, chunk_size=0):
+        def __init__(self, camera_params, poses_3d, poses_2d, codenames, chunk_size=0, fused=False):
             self._inputs2d = []
             self._targets3d = []
             self._camera_params = camera_params
             self._names = []
             self._frames_count = []
             self._chunk_size = chunk_size
+            self._fused = fused
             for i in range(len(poses_3d)):
                 self._frames_count.append(poses_3d[i].shape[0])
             self._inputs2d = np.concatenate(poses_2d, axis=0)
             targets3d = np.concatenate(poses_3d, axis=0)  # except root, all other joints are root related
-            root3d = targets3d[:, [0], :]  # root contains the trajectory
+            # root3d = targets3d[:, [0], :]  # root contains the trajectory
             targets3d[:, 0, :] = 0  # remove root trajectory
-            self._bones = h36m_17_get_bones(targets3d)
-            # self._bones_means = np.mean(self._bones)
-            # TODO : normalise bones length
-            self._bones_normalised, self._bones_mean, self._bones_std = tools.normalize_data(self._bones)
+            self._bones = get_h36m_17_bones_length(targets3d)
+            if self._fused:
+                self._inputs2d = np.reshape(self._inputs2d, (self._inputs2d.shape[0], -1))
+            self._bones, self._bones_mean, self._bones_std = tools.normalize_data(self._bones)
             self._names = codenames
             self._cut_names = []
             self.sequence_index = None
@@ -332,9 +337,9 @@ class Human36mBoneDatasetLoader:
         def __getitem__(self, idx):
             index = self.sequence_index[idx]
             if self._chunk_size != 0:
-                return self._inputs2d[index], self._bones[index], self._bones_normalised[index], self._cut_names[idx]
+                return self._inputs2d[index], self._bones[index], self._cut_names[idx]
             else:
-                return self._inputs2d[index], self._bones[index], self._bones_normalised[index], self._names[idx] 
+                return self._inputs2d[index], self._bones[index], self._names[idx] 
         
         def __generator__(self):
             i = 0
@@ -343,20 +348,30 @@ class Human36mBoneDatasetLoader:
                 i += 1
 
         def generate_dataset(self):
-            ds = tf.data.Dataset.from_generator(
-                self.__generator__,
-                output_signature=(
-                    tf.TensorSpec(shape=(None, 17, 2), dtype=tf.float32),
-                    tf.TensorSpec(shape=(None, 10), dtype=tf.float32),
-                    tf.TensorSpec(shape=(None, 10), dtype=tf.float32),
-                    tf.TensorSpec(shape=(), dtype=tf.string))
-                )
+            if self._fused:
+                ds = tf.data.Dataset.from_generator(
+                    self.__generator__,
+                    output_signature=(
+                        tf.TensorSpec(shape=(None, 34), dtype=tf.float32),
+                        tf.TensorSpec(shape=(None, 10), dtype=tf.float32),
+                        # tf.TensorSpec(shape=(None, 10), dtype=tf.float32),
+                        tf.TensorSpec(shape=(), dtype=tf.string))
+                    )
+            else:
+                ds = tf.data.Dataset.from_generator(
+                    self.__generator__,
+                    output_signature=(
+                        tf.TensorSpec(shape=(None, 17, 2), dtype=tf.float32),
+                        tf.TensorSpec(shape=(None, 10), dtype=tf.float32),
+                        # tf.TensorSpec(shape=(None, 10), dtype=tf.float32),
+                        tf.TensorSpec(shape=(), dtype=tf.string))
+                    )
             return ds
         
         def get_bones_mean_std(self):
             return self._bones_mean, self._bones_std
 
-    def __init__(self, training_set=True, batch_size=1, chunk_size=0, keypoints="gt"):
+    def __init__(self, training_set=True, batch_size=1, chunk_size=0, keypoints="gt", fused=False):
         keypoints_path = f'./data/human36m/data_2d_h36m_{KEYPOINT_TYPE[keypoints]}.npz'
         data_generator = Human36mDatasetGenerator(keypoints_path=keypoints_path)
         if training_set:
@@ -364,7 +379,7 @@ class Human36mBoneDatasetLoader:
         else:
             subjects = ["S9", "S11"]
         camera_params, poses_3d, poses_2d, codenames = data_generator.generate(subjects)
-        self._tf_dataset = Human36mBoneDatasetLoader.TFBoneDataset(camera_params, poses_3d, poses_2d, codenames, chunk_size)
+        self._tf_dataset = Human36mBoneDatasetLoader.TFBoneDataset(camera_params, poses_3d, poses_2d, codenames, chunk_size, fused)
         self._dataset = self._tf_dataset.generate_dataset()
         self._batch_size = batch_size
         # self._dataset = self._dataset.batch(batch_size)
@@ -394,7 +409,7 @@ class Human36mBoneDatasetLoader:
         return self._tf_dataset.get_frame_count() 
 
 
-def h36m_17_get_bones(positions):
+def get_h36m_17_bones_length(positions):
     def distance(start, end):
         return np.linalg.norm(start - end, axis=-1)
 

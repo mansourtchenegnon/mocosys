@@ -3,7 +3,7 @@ import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 import json
 from types import SimpleNamespace as Namespace
-import tensorflow as tf
+from keras import ops as kops
 import yaml
 
 
@@ -56,8 +56,8 @@ def mkdir(folder):
 
 
 def normalize_data(orig_data):
-    data_mean = np.mean(orig_data, axis=0)
-    data_std = np.std(orig_data, axis=0)
+    data_mean = np.mean(orig_data, axis=0, dtype='float32')
+    data_std = np.std(orig_data, axis=0, dtype='float32')
     normalized_data = np.divide((orig_data - data_mean), data_std)
     normalized_data[normalized_data != normalized_data] = 0
     return normalized_data, data_mean, data_std
@@ -66,18 +66,33 @@ def normalize_data(orig_data):
 def umnormalize_data(normalized_data, data_mean, data_std):
     T = normalized_data.shape[0]  # Batch size
     D = data_mean.shape[0]  # Dimensionality
+    ndims = len(normalized_data.shape)
+    shape = [1 for i in range(ndims-1)] + [D]
+    repeats = [normalized_data.shape[i] for i in range(ndims-1)] + [1]
 
-    stdMat = data_std.reshape((1, D))
-    stdMat = np.repeat(stdMat, T, axis=0)
+    stdMat = data_std.reshape(shape)
+    stdMat = np.tile(stdMat, repeats)
     meanMat = data_mean.reshape((1, D))
-    meanMat = np.repeat(meanMat, T, axis=0)
+    meanMat = np.tile(meanMat, repeats)
     orig_data = np.multiply(normalized_data, stdMat) + meanMat
     return orig_data
 
-def un_normalise(normalised_data, data_mean, data_std):
+def normalise(data):
+    # TODO : complete
+    data_mean = kops.mean(data, axis=0)
+    data_std = kops.std(data, axis=0)
+
+def denormalise(normalised_data, data_mean, data_std):
     D = data_mean.shape[0]  # Dimensionality
-    original_data = normalised_data * tf.reshape(data_std, [1, 1, D])
-    original_data = original_data + tf.reshape(data_mean, [1, 1, D])
+    ndims = len(normalised_data.shape)
+    shape = [1 for i in range(ndims-1)] + [D]
+    repeats = [normalised_data.shape[i] for i in range(ndims-1)] + [1]
+
+    std_mat = data_std.reshape(shape)
+    std_mat = kops.tile(std_mat, repeats)
+    mean_mat = data_mean.reshape((1, D))
+    mean_mat = kops.tile(mean_mat, repeats)
+    original_data = kops.multiply(normalised_data, std_mat) + mean_mat
     return original_data
 
 def interp_pose(pose_array, confidences, k=2):
@@ -144,4 +159,4 @@ def load_config_yaml(config_file):
     config = None
     with open(config_file, 'r') as file:
         config = yaml.safe_load(file)
-    return dict_to_namespace(config)
+    return config

@@ -83,7 +83,7 @@ class SkeletonConstraintsComputation(tf.Module):
     @staticmethod
     def get_gamma(inputs, bones, bone_mean, bone_std):
         batch, length, joints, _ = inputs.shape
-        un_norm_bones = tools.un_normalise(bones, bone_mean, bone_std)
+        un_norm_bones = tools.denormalise_data(bones, bone_mean, bone_std)
         # un_norm_bones = bones * tf.expand_dims(bone_std, 0)
         # un_norm_bones += tf.reshape(bone_mean, (bones.shape[0], 1, bone_mean.shape[0]))
 

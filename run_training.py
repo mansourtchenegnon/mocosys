@@ -70,14 +70,6 @@ def train_motion_fine_tuning_model(config, args):
             fused=False,
             location="data/human36m"
         )
-        # testset = Human36mSotaDatasetLoader(
-        #     training_set=False,
-        #     batch_size=config["running"]["batch_size"],
-        #     keypoints="cpn",
-        #     chunk_size=243,
-        #     fused=False,
-        #     # location="data/human36m"
-        # )
     else:
         raise Exception(f"Dataset {args.dataset} not recognized!")
     # Create model and trainer
@@ -89,7 +81,11 @@ def train_motion_fine_tuning_model(config, args):
 def train_skeleton_model(config, args):
     # Load dataset
     if args.dataset == "h36m":
-        trainset = Human36mBoneDatasetLoader(keypoints="gt", batch_size=config.running.batch_size, chunk_size=config.running.data_cut)
+        trainset = Human36mBoneDatasetLoader(
+            keypoints="gt",
+            batch_size=config["running"]["batch_size"],
+            chunk_size=config["running"]['data_cut'],
+            fused=True)
     else:
         raise Exception(f"Dataset {args.dataset} not recognized !")
     # Create model and trainer

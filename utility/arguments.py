@@ -7,7 +7,6 @@ Created on Thu Jun 30 10:16:14 2022
 """
 
 import yaml
-from utility import tools
 
 def common_args(parser):
     parser.add_argument("-r", "--resume", type=str, help="path to checkpoint (default: None)")
