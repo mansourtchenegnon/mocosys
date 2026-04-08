@@ -282,7 +282,7 @@ class Human36mDatasetLoader:
 
 class Human36mBoneDatasetLoader:
     class TFBoneDataset:
-        def __init__(self, camera_params, poses_3d, poses_2d, codenames, chunk_size=0, fused=False):
+        def __init__(self, camera_params, poses_3d, poses_2d, codenames, chunk_size=0, fused=True):
             self._inputs2d = []
             self._targets3d = []
             self._camera_params = camera_params
@@ -293,6 +293,9 @@ class Human36mBoneDatasetLoader:
             for i in range(len(poses_3d)):
                 self._frames_count.append(poses_3d[i].shape[0])
             self._inputs2d = np.concatenate(poses_2d, axis=0)
+            self._inputs2d = (self._inputs2d + 1.) / 2.
+            # self._inputs2d_mean = np.mean(self._inputs2d)
+            # self._inputs2d_std = np.std(self._inputs2d)
             targets3d = np.concatenate(poses_3d, axis=0)  # except root, all other joints are root related
             # root3d = targets3d[:, [0], :]  # root contains the trajectory
             targets3d[:, 0, :] = 0  # remove root trajectory
@@ -300,6 +303,7 @@ class Human36mBoneDatasetLoader:
             if self._fused:
                 self._inputs2d = np.reshape(self._inputs2d, (self._inputs2d.shape[0], -1))
             self._bones, self._bones_mean, self._bones_std = tools.normalize_data(self._bones)
+            self._inputs2d, self._inputs2d_mean, self._inputs2d_std = tools.normalize_data(self._inputs2d)
             self._names = codenames
             self._cut_names = []
             self.sequence_index = None
@@ -370,6 +374,12 @@ class Human36mBoneDatasetLoader:
         
         def get_bones_mean_std(self):
             return self._bones_mean, self._bones_std
+        
+        def get_inputs_mean_std(self):
+            return self._inputs2d_mean, self._inputs2d_std
+        
+        def get_normalisation_parameters(self):
+            return self._bones_mean, self._bones_std, self._inputs2d_mean, self._inputs2d_std
 
     def __init__(self, training_set=True, batch_size=1, chunk_size=0, keypoints="gt", fused=False):
         keypoints_path = f'./data/human36m/data_2d_h36m_{KEYPOINT_TYPE[keypoints]}.npz'

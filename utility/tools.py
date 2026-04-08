@@ -88,9 +88,9 @@ def denormalise(normalised_data, data_mean, data_std):
     shape = [1 for i in range(ndims-1)] + [D]
     repeats = [normalised_data.shape[i] for i in range(ndims-1)] + [1]
 
-    std_mat = data_std.reshape(shape)
+    std_mat = kops.reshape(data_std, shape)
     std_mat = kops.tile(std_mat, repeats)
-    mean_mat = data_mean.reshape((1, D))
+    mean_mat = kops.reshape(data_mean, shape)
     mean_mat = kops.tile(mean_mat, repeats)
     original_data = kops.multiply(normalised_data, std_mat) + mean_mat
     return original_data

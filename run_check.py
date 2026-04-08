@@ -113,7 +113,7 @@ def test_dataset(config, args):
     )
     iterator = iter(dataset.get_dataset())
     inputs, bones, _ = next(iterator)
-    print("inputs", inputs.shape)
+    print("inputs", inputs.shape, "\n", inputs[0][0])
     print("bones", bones.shape, bones[0][0])
     mean, std = dataset.get_bones_mean_std()
     print("bones mean/std", mean.shape, mean.dtype, std.shape, std.dtype)
