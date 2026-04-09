@@ -379,7 +379,7 @@ class Human36mBoneDatasetLoader:
             return self._inputs2d_mean, self._inputs2d_std
         
         def get_normalisation_parameters(self):
-            return self._bones_mean, self._bones_std, self._inputs2d_mean, self._inputs2d_std
+            return self._inputs2d_mean, self._inputs2d_std, self._bones_mean, self._bones_std
 
     def __init__(self, training_set=True, batch_size=1, chunk_size=0, keypoints="gt", fused=False):
         keypoints_path = f'./data/human36m/data_2d_h36m_{KEYPOINT_TYPE[keypoints]}.npz'
@@ -392,6 +392,7 @@ class Human36mBoneDatasetLoader:
         self._tf_dataset = Human36mBoneDatasetLoader.TFBoneDataset(camera_params, poses_3d, poses_2d, codenames, chunk_size, fused)
         self._dataset = self._tf_dataset.generate_dataset()
         self._batch_size = batch_size
+        self._parameters = self._tf_dataset.get_normalisation_parameters()
         # self._dataset = self._dataset.batch(batch_size)
     
     def get_tf_dataset(self):

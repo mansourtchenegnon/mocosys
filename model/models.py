@@ -109,8 +109,10 @@ class SkeletonModel(keras.Model):
             window = 3
         features_out = 10
         dropout_rate = 0.2
-        self._normalization_mean = []
-        self._normalization_std = []
+        self._bones_mean = []
+        self._bones_std = []
+        self._inputs_mean = []
+        self._inputs_std = []
 
         self.spatial_encoder = keras.Sequential([
             layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate),
@@ -142,9 +144,11 @@ class SkeletonModel(keras.Model):
         outputs = self.call(inputs)
         return self._denormalize_data(outputs)
     
-    def set_normalization_parameters(self, mean, std):
-        self._normalization_mean = mean
-        self._normalization_std = std
+    def set_normalization_parameters(self, parameters):
+        self._inputs_mean = parameters[0]
+        self._inputs_std = parameters[1]
+        self._bones_mean = parameters[2]
+        self._bones_std = parameters[3]
     
     def _normalize_data(self, data):
         mean = kops.ones(data.shape, dtype='float32') * self._normalization_mean

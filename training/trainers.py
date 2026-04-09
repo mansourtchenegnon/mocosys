@@ -308,8 +308,8 @@ class SkeletonModelTrainer(Trainer):
         ):
         super().__init__(config, model, "skelmodel")
         self._trainset, self._testset = train_dataloader.get_train_validation_datasets()
-        self.normalization_mean, self.normalization_std = train_dataloader.get_bones_mean_std()
-        model.set_normalization_parameters(self.normalization_mean, self.normalization_std)
+        self.normalization_parameters = train_dataloader.get_parameters()
+        model.set_normalization_parameters(self.normalization_parameters)
         self._trainset_size = 0
         self._testset_size = 0
         self.BATCH_SIZE = config["running"]["batch_size"]
@@ -350,8 +350,8 @@ class SkeletonModelTrainer(Trainer):
             targets, predictions
         )
         bone_error = self.mae(
-            tools.denormalise(targets, self.normalization_mean, self.normalization_std),
-            tools.denormalise(predictions, self.normalization_mean, self.normalization_std)
+            tools.denormalise(targets, self.normalization_parameters[2], self.normalization_parameters[3]),
+            tools.denormalise(predictions, self.normalization_parameters[2], self.normalization_parameters[3])
         ) # / 1000
         return loss, bone_error
 
