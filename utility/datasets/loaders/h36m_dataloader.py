@@ -279,7 +279,6 @@ class Human36mDatasetLoader:
         return self._tf_dataset.get_frame_count() 
 
 
-
 class Human36mBoneDatasetLoader:
     class TFBoneDataset:
         def __init__(self, camera_params, poses_3d, poses_2d, codenames, chunk_size=0, fused=True):
@@ -381,7 +380,7 @@ class Human36mBoneDatasetLoader:
         def get_normalisation_parameters(self):
             return self._inputs2d_mean, self._inputs2d_std, self._bones_mean, self._bones_std
 
-    def __init__(self, training_set=True, batch_size=1, chunk_size=0, keypoints="gt", fused=False):
+    def __init__(self, training_set=True, batch_size=1, chunk_size=0, keypoints="gt", fused=True):
         keypoints_path = f'./data/human36m/data_2d_h36m_{KEYPOINT_TYPE[keypoints]}.npz'
         data_generator = Human36mDatasetGenerator(keypoints_path=keypoints_path)
         if training_set:

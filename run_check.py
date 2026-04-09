@@ -108,17 +108,18 @@ def test_dataset(config, args):
     # h36m bone dataset
     from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader
     dataset = Human36mBoneDatasetLoader(
-        training_set=True, batch_size=config["running"]["batch_size"],
-        chunk_size=243
+        training_set=True,
+        batch_size=config["running"]["batch_size"],
+        chunk_size=243,
     )
     iterator = iter(dataset.get_dataset())
     inputs, bones, _ = next(iterator)
     print("inputs", inputs.shape, "\n", inputs[0][0])
-    print("bones", bones.shape, bones[0][0])
-    mean, std = dataset.get_bones_mean_std()
-    print("bones mean/std", mean.shape, mean.dtype, std.shape, std.dtype)
-    denorm_bones = tools.denormalise(bones, mean, std)
-    print("bones denorm", denorm_bones.shape, denorm_bones[0][0]*1000)
+    # print("bones", bones.shape, bones[0][0])
+    # mean, std = dataset.get_bones_mean_std()
+    # print("bones mean/std", mean.shape, mean.dtype, std.shape, std.dtype)
+    # denorm_bones = tools.denormalise(bones, mean, std)
+    # print("bones denorm", denorm_bones.shape, denorm_bones[0][0]*1000)
     
     # from rendering import display, animation
     # display.generate_3d_animation(gt[0] * 1000, "sample")
