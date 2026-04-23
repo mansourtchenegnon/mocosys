@@ -21,6 +21,7 @@ def identity(x):
 
 
 # %% Custom Layers
+@keras.saving.register_keras_serializable()
 class DeltaConverter(keras.layers.Layer):
     def __init__(self, skel : SkeletonGraph, features, t, l_mat=None, sw=1.0, tw=1.0, **kwargs):
         super(DeltaConverter, self).__init__(**kwargs)
@@ -65,7 +66,7 @@ class DeltaConverter(keras.layers.Layer):
         )
         return config
 
-
+@keras.saving.register_keras_serializable()
 class PoseSolver(keras.layers.Layer):
     def __init__(self, skel : SkeletonGraph, features, t, constraints, l_mat=None, sw=1.0, tw=1.0, **kwargs):
         super(PoseSolver, self).__init__(**kwargs)
@@ -114,6 +115,7 @@ class PoseSolver(keras.layers.Layer):
 
 
 # %% Graph convolution layer
+@keras.saving.register_keras_serializable()
 class GraphConv(keras.layers.Layer):
     def __init__(
             self,
@@ -197,6 +199,7 @@ class GraphConv(keras.layers.Layer):
         return {**base_config, **config}
 
 
+@keras.saving.register_keras_serializable()
 class SkeletonGraphConv(keras.layers.Layer):
     def __init__(
             self,
@@ -272,6 +275,7 @@ class SkeletonGraphConv(keras.layers.Layer):
         return {**base_config, **config}
 
 
+@keras.saving.register_keras_serializable()
 class SkeletonSymmetrisationLayer(keras.layers.Layer):
 
     def __init__(self, op_type="avg", **kwargs):
@@ -527,6 +531,7 @@ class SkeletonSimplificationLayer(keras.layers.Layer):
         return config
 
 
+@keras.saving.register_keras_serializable()
 class ConvolutionBlock(keras.layers.Layer):
     def __init__(self, channels, kernel_size, strides=1,
                  padding="SAME", normalize=False, dropout_rate=None, **kwargs):
@@ -576,6 +581,7 @@ class ConvolutionBlock(keras.layers.Layer):
         return {**base_config, **config}
 
 
+@keras.saving.register_keras_serializable()
 class DenseBlock(keras.layers.Layer):
     def __init__(self, units, normalize=False, dropout_rate=None, **kwargs):
         super().__init__(**kwargs)
@@ -613,6 +619,7 @@ class DenseBlock(keras.layers.Layer):
         return {**base_config, **config}
 
 
+@keras.saving.register_keras_serializable()
 class AdaptiveAvgPool(keras.layers.Layer):
     def __init__(self, size, **kwargs):
         super().__init__(**kwargs)

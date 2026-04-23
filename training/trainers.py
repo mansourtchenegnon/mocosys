@@ -43,9 +43,9 @@ class Trainer:
         self.checkpoint_dir = "./checkpoints/%s/%s" % (model_type, config["running"]["version"])
         self.log_dir = "./checkpoints/logs/%s/%s" % (model_type, config["running"]["version"])
         self.model = model
+        self.normalization_parameters = []
         tools.make_dir(self.checkpoint_dir)
         tools.make_dir(self.log_dir)
-        tools.make_dir(f"{self.checkpoint_dir}/best")
         self.logger = logs.Logger("%s/training.log" % self.log_dir)
         self.train_summary_writer = tf.summary.create_file_writer(f"{self.log_dir}")
         self.history = {}
@@ -56,10 +56,12 @@ class Trainer:
         state = {
             'arch': arch,
             'epoch': epoch,
-            'config': self.config
+            'config': self.config,
+            'normalization': self.normalization_parameters
         }
-        self.model.save(f"{self.checkpoint_dir}/best/mftmodel.keras")
-        with open(f"{self.checkpoint_dir}/best/state.yaml", 'w') as fp:
+        self.model.save(f"{self.checkpoint_dir}/best.keras")
+        self.model.save_weights(f"{self.checkpoint_dir}/best.weights.h5")
+        with open(f"{self.checkpoint_dir}/state.yaml", 'w') as fp:
             yaml.dump(state, fp, default_flow_style=False)
 
 

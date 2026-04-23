@@ -10,7 +10,7 @@ from model.graph import laplacian as matrix
 from model.graph.skeleton import H36M_17_JOINTS_SKELETON_BONES_PAIRS, SkeletonGraph
 from model import layers, ops
 
-
+@keras.saving.register_keras_serializable()
 class MotionFineTuningModel(keras.Model):
     """ Neural Network for the Motion Fine-Tuning stage.
     """
@@ -82,7 +82,7 @@ class MotionFineTuningModel(keras.Model):
         }
         return {**base_config, **config}
 
-
+@keras.saving.register_keras_serializable()
 class SkeletonModel(keras.Model):
     """ Neural network model that estimates bone lengths from a sequence of poses.
     """    
@@ -151,30 +151,35 @@ class SkeletonModel(keras.Model):
         self._bones_std = parameters[3]
     
     def _normalize_data(self, data):
-        mean = kops.ones(data.shape, dtype='float32') * self._normalization_mean
-        std = kops.ones(data.shape, dtype='float32') * self._normalization_std
+        mean = kops.ones(data.shape, dtype='float32') * self._bones_mean
+        std = kops.ones(data.shape, dtype='float32') * self._bones_std
         normalized_data = kops.divide(data - mean, std)
         return normalized_data
 
     def _denormalize_data(self, data):
-        D = self.normalization_mean.shape[0]  # Dimensionality
+        D = self._bones_mean.shape[0]  # Dimensionality
         shape = [1 for i in range(len(data.shape)-1)] + [D]
         repeat = list(data.shape[:-1]) + [1]
         std = kops.tile(
-            kops.reshape(self._normalization_std, shape),
+            kops.reshape(self._bones_std, shape),
             repeat
         )
         mean = kops.tile(
-            kops.reshape(self._normalization_mean, shape),
+            kops.reshape(self._bones_mean, shape),
             repeat
         )
         return kops.multiply(data * std) + mean
+    
+    def get_normalization_parameters(self):
+        return self._inputs_mean, self._inputs_std, self._bones_mean, self._bones_std
     
     def get_config(self):
         base_config = super().get_config()
         config = {
             "params": self.params,
-            "norm_mean": self._normalization_mean,
-            "norm_std": self._normalization_std
+            "inputs_mean": self._inputs_mean,
+            "inputs_std": self._inputs_std,
+            "bones_mean": self._bones_mean,
+            "bones_std": self._bones_std,
         }
         return {**base_config, **config}
