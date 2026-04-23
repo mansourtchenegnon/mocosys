@@ -104,7 +104,7 @@ class SkeletonModel(keras.Model):
             # joints = self.params["dataset"]["graph"]["skeleton"]["number_of_joints"]
             window = self.params["model"]["arch"]["window"]
         else:
-            channels = 16
+            channels = 256
             # joints = 17
             window = 3
         features_out = 10

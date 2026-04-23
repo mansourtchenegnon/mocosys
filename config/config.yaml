@@ -1,6 +1,6 @@
 model: # model configuration
   arch:
-    channels: 128
+    channels: 256
     channels_in : 2
     channels_out : 3
     units : 16  # skeleton model, dense layer 
