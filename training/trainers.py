@@ -445,7 +445,7 @@ class SkeletonModelTrainer(Trainer):
             if self.monitor_best > self.test_loss.result().numpy():
                 best = True
                 self.monitor_best = self.test_loss.result().numpy()
-            if best and epoch > 2:
+            if best:
                 self.save_checkpoint(epoch=epoch)
                 logs.print_info("\nSaving new best checkpoints at epoch {:03d}".format(epoch))
             print()

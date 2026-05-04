@@ -45,7 +45,7 @@ def parse_args():
     # Running parameters
     parser.add_argument("--batch_size", default=64, type=int, help="The batch size")
     parser.add_argument("--frames", type=int, help="Size of data cut in number of frames")
-    parser.add_argument("--epochs", default=5, type=int, help="Number of training epochs")
+    parser.add_argument("--epochs", default=10, type=int, help="Number of training epochs")
 
     # Reproducibility measure
     parser.add_argument("--seed", default=97, type=int, help="Random seed for reproducibility.")
@@ -108,10 +108,10 @@ def evaluate_skeleton_model(config, args):
     else:
         raise Exception(f"Dataset {args.dataset} not recognized !")
     # Load model and evaluate
-    model = keras.saving.load_model(f"{args.resume}/best.keras")
-    # model = SkeletonModel(config)
-    # model(tf.random.uniform((1, 27, 34)))
-    # model.load_weights(f"{args.resume}/best.weights.h5")
+    # model = keras.saving.load_model(f"{args.resume}/best.keras")
+    model = SkeletonModel(config)
+    model(tf.random.uniform((1, 27, 34)))
+    model.load_weights(f"{args.resume}/best.weights.h5")
     bone_errors = []
     bone_error_list = {}
     parameters = [i for i in testset.get_parameters()]
