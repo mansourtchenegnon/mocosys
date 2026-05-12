@@ -10,6 +10,8 @@ import argparse
 import tensorflow as tf
 import keras
 import sys
+
+import yaml
 from utility import arguments, tools
 from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader, Human36mSotaDatasetLoader
 from model.models import MotionFineTuningModel, SkeletonModel
@@ -112,9 +114,19 @@ def evaluate_skeleton_model(config, args):
     model = SkeletonModel(config)
     model(tf.random.uniform((1, 27, 34)))
     model.load_weights(f"{args.resume}/best.weights.h5")
+    # Load model parameters
+    parameters = None
+    with np.load(f"{args.resume}/normalization.npz") as data:
+        parameters = []
+        parameters.append(data["inputs_mean"])
+        parameters.append(data["inputs_std"])
+        parameters.append(data["bones_mean"])
+        parameters.append(data["bones_std"])
+    if not parameters:
+        print("Loading normalization testdataset")
+        parameters = [i for i in testset.get_parameters()]
     bone_errors = []
     bone_error_list = {}
-    parameters = [i for i in testset.get_parameters()]
     print("parameters", len(parameters))
     for video_idx, datas in enumerate(testset.get_dataset()):
         inputs_2d, bones, video_name = datas

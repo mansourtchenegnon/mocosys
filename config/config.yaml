@@ -21,5 +21,7 @@ dataset: # dataset configuration
   graph: # configuration for the skeleton format
     skeleton:
       number_of_joints: 17
+      joint_input_features: 2
+      joint_output_features: 3
       parents: []
       bones: []

@@ -6,6 +6,7 @@
 """
 
 import math
+import numpy
 import yaml
 import sys
 import time
@@ -43,7 +44,7 @@ class Trainer:
         self.checkpoint_dir = "./checkpoints/%s/%s" % (model_type, config["running"]["version"])
         self.log_dir = "./checkpoints/logs/%s/%s" % (model_type, config["running"]["version"])
         self.model = model
-        self.normalization_parameters = []
+        self.normalization_parameters = None
         tools.make_dir(self.checkpoint_dir)
         tools.make_dir(self.log_dir)
         self.logger = logs.Logger("%s/training.log" % self.log_dir)
@@ -56,13 +57,20 @@ class Trainer:
         state = {
             'arch': arch,
             'epoch': epoch,
-            'config': self.config,
-            'normalization': self.normalization_parameters
+            'config': self.config
         }
         self.model.save(f"{self.checkpoint_dir}/best.keras")
         self.model.save_weights(f"{self.checkpoint_dir}/best.weights.h5")
         with open(f"{self.checkpoint_dir}/state.yaml", 'w') as fp:
             yaml.dump(state, fp, default_flow_style=False)
+
+        if self.normalization_parameters:
+            numpy.savez(f"{self.checkpoint_dir}/normalization.npz",
+                inputs_mean=self.normalization_parameters[0],
+                inputs_std=self.normalization_parameters[1],
+                bones_mean=self.normalization_parameters[2],
+                bones_std=self.normalization_parameters[3],
+            )
 
 
 class MFTModelTrainer(Trainer):
