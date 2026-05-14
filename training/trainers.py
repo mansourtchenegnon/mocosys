@@ -380,7 +380,7 @@ class SkeletonModelTrainer(Trainer):
         
         counter = 0
         self.__reset_trackers__(training=True)
-        logs.print_info("Epoch {}/{} - Train".format(epoch+1, self.EPOCHS))
+        logs.print_info("Epoch {}/{} - Train".format(epoch, self.EPOCHS))
         for sample in self._trainset:
             counter += train_step(sample)
             if self._trainset_size == 0:
@@ -417,7 +417,7 @@ class SkeletonModelTrainer(Trainer):
             return poses2d.shape[0] * poses2d.shape[1]
         counter = 0
         self.__reset_trackers__(training=False)
-        logs.print_info("Epoch {}/{} - Test".format(epoch+1, self.EPOCHS))
+        logs.print_info("Epoch {}/{} - Test".format(epoch, self.EPOCHS))
         for sample in self._testset:
             counter += test_step(sample)
             if self._testset_size == 0:
@@ -446,7 +446,7 @@ class SkeletonModelTrainer(Trainer):
 
     def train(self):
         t = time.time()
-        for epoch in range(self.EPOCHS):
+        for epoch in range(1, self.EPOCHS + 1):
             self.train_epoch(epoch)
             self.test_epoch(epoch)
             best = False

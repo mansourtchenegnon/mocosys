@@ -11,7 +11,7 @@ import tensorflow as tf
 import keras.ops as kops
 import numpy
 from model.graph import skeleton
-from model.models import MotionFineTuningModel
+from model.models import MotionFineTuningModel, SkeletonModel
 from model import ops, layers
 from utility import arguments, tools
 
@@ -134,8 +134,10 @@ def test_animation():
 
 def test_model(config, args):
     ## Test model
-    model = MotionFineTuningModel(config)
-    sample_data = tf.random.uniform((64, 81, 17, 3))
+    # model = MotionFineTuningModel(config)
+    # sample_data = tf.random.uniform((64, 81, 17, 3))
+    model = SkeletonModel(config)
+    sample_data = tf.random.uniform((64, 81, 34))
     model(sample_data)
     model.summary(expand_nested=True)
     # import yaml
@@ -148,7 +150,7 @@ if __name__ == "__main__":
     # parse args
     config, args = get_config()    
     # training
-    test_dataset(config, args)
-    # test_model(config, args)
+    # test_dataset(config, args)
+    test_model(config, args)
     # test_laplacian()
     # test_animation()

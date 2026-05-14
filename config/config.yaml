@@ -3,7 +3,7 @@ model: # model configuration
     channels: 256
     channels_in : 2
     channels_out : 3
-    units : 16  # skeleton model, dense layer 
+    units : 32  # skeleton model, dense layer 
     residual: true
     stages: 1
     window: 3

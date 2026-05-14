@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-@author: mansour
+@author: Mansour Tchenegnon
+@version: 1.0
 """
 # %% Imports
 import keras
@@ -100,14 +101,12 @@ class SkeletonModel(keras.Model):
         super().__init__(*args, **kwargs)
         self.params = params
         if self.params:
-            channels = self.params["model"]["arch"]["channels"]
+            channels = self.params["model"]["arch"]["units"]
             joints = self.params["dataset"]["graph"]["skeleton"]["number_of_joints"]
-            window = self.params["model"]["arch"]["window"]
             input_dimension = self.params["dataset"]["graph"]["skeleton"]["joint_input_features"]
         else:
-            channels = 256
+            channels = 32
             joints = 17
-            window = 3
             input_dimension = 2
         input_features = joints * input_dimension
         features_out = 10
@@ -117,40 +116,63 @@ class SkeletonModel(keras.Model):
         self._inputs_mean = []
         self._inputs_std = []
 
+        # # old version
+        # self.spatial_encoder = keras.Sequential([
+        #     layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate),
+        #     layers.Residual(layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate))
+        # ], name=f"{self.name}.spatial_encoder")
+
+        # self.temporal_encoder = keras.Sequential([
+        #     layers.ConvolutionBlock(channels, 3, dropout_rate=dropout_rate),
+        #     layers.Residual(
+        #         layers.ConvolutionBlock(channels, 3, dropout_rate=dropout_rate)
+        #     ),
+        #     layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate)
+        # ], name=f"{self.name}.temporal_encoder")
+        # self.regression = keras.Sequential([
+        #     keras.layers.BatchNormalization(),
+        #     keras.layers.AdaptiveAveragePooling1D(output_size=1),
+        #     keras.layers.Conv1D(features_out, 1)
+        # ], name=f"{self.name}.regression")
+        
         # spatial encoder
-        in_layer = keras.layers.Input([None, input_features])
-        x = keras.layers.Conv1D(channels, 1, 1, padding="same", activation="relu")(in_layer)
-        x = keras.layers.Dropout(rate=0.2)(x)
-        x = keras.layers.Add()([
+        inputs = keras.layers.Input([None, input_features])
+        x = keras.layers.Conv1D(channels, 1, 1, padding="same", activation="relu")(inputs)
+        x = keras.layers.Dropout(rate=dropout_rate)(x)
+        x = keras.layers.Average()([
             keras.layers.Conv1D(channels, 1, 1, padding="same", activation="relu")(x),
             x
         ])
-        x = keras.layers.Dropout(rate=0.2)(x)
         # Temporal encoder
         x = keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(x)
-        x = keras.layers.Dropout(rate=0.2)(x)
-        x = keras.layers.Add()([
+        x = keras.layers.Dropout(rate=dropout_rate)(x)
+        x = keras.layers.Average()([
             keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(x),
             x
         ])
         x = keras.layers.Dropout(rate=0.2)(x)
         x = keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(x)
-        x = keras.layers.Dropout(rate=0.2)(x)
-        x = keras.layers.Add()([
+        x = keras.layers.Dropout(rate=dropout_rate)(x)
+        x = keras.layers.Average()([
             keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(x),
             x
         ])
-        x = keras.layers.Dropout(rate=0.2)(x)
         x = keras.layers.BatchNormalization()(x)
         x = keras.layers.AdaptiveAveragePooling1D(output_size=1)(x)
-        x = keras.layers.Conv1D(features_out, 1)(x)
-        self.bones_estimator = keras.Sequential(
-            inputs = in_layer,
-            outputs = x,
+        outputs = keras.layers.Conv1D(features_out, 1)(x)
+        self.bones_estimator = keras.Model(
+            inputs=inputs,
+            outputs=outputs,
             name=f"{self.name}.bone_estimator")
 
     def call(self, inputs, training=False):
-        return self.bones_estimator(inputs, training=training)
+        # old
+        # outputs = self.spatial_encoder(inputs, training=training)
+        # outputs = self.temporal_encoder(outputs, training=training)
+        # outputs = self.regression(outputs, training=training)
+        # new
+        outputs = self.bones_estimator(inputs, training=training)
+        return outputs
     
     def forward_denormalized(self, inputs):
         outputs = self.call(inputs)
@@ -170,7 +192,7 @@ class SkeletonModel(keras.Model):
 
     def _denormalize_data(self, data):
         D = self._bones_mean.shape[0]  # Dimensionality
-        shape = [1 for i in range(len(data.shape)-1)] + [D]
+        shape = [1 for _ in range(len(data.shape)-1)] + [D]
         repeat = list(data.shape[:-1]) + [1]
         std = kops.tile(
             kops.reshape(self._bones_std, shape),
