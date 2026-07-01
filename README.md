@@ -12,8 +12,8 @@ This repository is the official implementation for *"MoCoSys : Human Motion Corr
 
 The code is developed and tested under the following environment.
 
-- Python >=3.8
-- PyTorch 1.11.0
+- Python >=3.10
+- Tensorflow >= 2.16.1
 - CUDA 11.3
 
 ```pip install -r requirements.txt```
