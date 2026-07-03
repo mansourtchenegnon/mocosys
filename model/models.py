@@ -115,50 +115,26 @@ class SkeletonModel(keras.Model):
         self._bones_std = []
         self._inputs_mean = []
         self._inputs_std = []
-
-        # # old version
-        # self.spatial_encoder = keras.Sequential([
-        #     layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate),
-        #     layers.Residual(layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate))
-        # ], name=f"{self.name}.spatial_encoder")
-
-        # self.temporal_encoder = keras.Sequential([
-        #     layers.ConvolutionBlock(channels, 3, dropout_rate=dropout_rate),
-        #     layers.Residual(
-        #         layers.ConvolutionBlock(channels, 3, dropout_rate=dropout_rate)
-        #     ),
-        #     layers.ConvolutionBlock(channels, 1, dropout_rate=dropout_rate)
-        # ], name=f"{self.name}.temporal_encoder")
-        # self.regression = keras.Sequential([
-        #     keras.layers.BatchNormalization(),
-        #     keras.layers.AdaptiveAveragePooling1D(output_size=1),
-        #     keras.layers.Conv1D(features_out, 1)
-        # ], name=f"{self.name}.regression")
         
         # spatial encoder
         inputs = keras.layers.Input([None, input_features])
         x = keras.layers.Conv1D(channels, 1, 1, padding="same", activation="relu")(inputs)
+        r = keras.layers.Dropout(rate=dropout_rate)(x)
+        x = keras.layers.Conv1D(channels, 1, 1, padding="same", activation="relu")(r),
         x = keras.layers.Dropout(rate=dropout_rate)(x)
-        x = keras.layers.Average()([
-            keras.layers.Conv1D(channels, 1, 1, padding="same", activation="relu")(x),
-            x
-        ])
+        x = keras.layers.Add()([x, r])
+
         # Temporal encoder
         x = keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(x)
+        r = keras.layers.Dropout(rate=dropout_rate)(x)
+        x = keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(r),
         x = keras.layers.Dropout(rate=dropout_rate)(x)
-        x = keras.layers.Average()([
-            keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(x),
-            x
-        ])
-        x = keras.layers.Dropout(rate=0.2)(x)
-        x = keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(x)
-        x = keras.layers.Dropout(rate=dropout_rate)(x)
-        x = keras.layers.Average()([
-            keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(x),
-            x
-        ])
+        x = keras.layers.Add()([x, r])
+
+        # Regression block
         x = keras.layers.BatchNormalization()(x)
-        x = keras.layers.AdaptiveAveragePooling1D(output_size=1)(x)
+        # x = keras.layers.AdaptiveAveragePooling1D(output_size=1)(x)
+        x = keras.layers.GlobalAveragePooling1D(keepdims=True)(x)
         outputs = keras.layers.Conv1D(features_out, 1)(x)
         self.bones_estimator = keras.Model(
             inputs=inputs,
@@ -166,11 +142,6 @@ class SkeletonModel(keras.Model):
             name=f"{self.name}.bone_estimator")
 
     def call(self, inputs, training=False):
-        # old
-        # outputs = self.spatial_encoder(inputs, training=training)
-        # outputs = self.temporal_encoder(outputs, training=training)
-        # outputs = self.regression(outputs, training=training)
-        # new
         outputs = self.bones_estimator(inputs, training=training)
         return outputs
     
