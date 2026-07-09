@@ -119,21 +119,16 @@ class SkeletonModel(keras.Model):
         # spatial encoder
         inputs = keras.layers.Input([None, input_features])
         x = keras.layers.Conv1D(channels, 1, 1, padding="same", activation="relu")(inputs)
-        r = keras.layers.Dropout(rate=dropout_rate)(x)
-        x = keras.layers.Conv1D(channels, 1, 1, padding="same", activation="relu")(r),
-        x = keras.layers.Dropout(rate=dropout_rate)(x)
-        x = keras.layers.Add()([x, r])
+        x = layers.ResidualConvolutionBlock(x, channels, 1, dropout_rate)
+        x = layers.ResidualConvolutionBlock(x, channels, 1, dropout_rate)
 
         # Temporal encoder
         x = keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(x)
-        r = keras.layers.Dropout(rate=dropout_rate)(x)
-        x = keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(r),
-        x = keras.layers.Dropout(rate=dropout_rate)(x)
-        x = keras.layers.Add()([x, r])
-
+        x = layers.ResidualConvolutionBlock(x, channels, 3, dropout_rate)
+        x = layers.ResidualConvolutionBlock(x, channels, 3, dropout_rate)
+        
         # Regression block
         x = keras.layers.BatchNormalization()(x)
-        # x = keras.layers.AdaptiveAveragePooling1D(output_size=1)(x)
         x = keras.layers.GlobalAveragePooling1D(keepdims=True)(x)
         outputs = keras.layers.Conv1D(features_out, 1)(x)
         self.bones_estimator = keras.Model(

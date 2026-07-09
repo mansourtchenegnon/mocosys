@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-@author: author
-@version: version
+@author: Mansour Tchenenon
+@version: 2025
 """ 
 
 import datetime
@@ -151,6 +151,6 @@ if __name__ == "__main__":
     config, args = get_config()    
     # training
     # test_dataset(config, args)
-    test_model(config, args)
-    # test_laplacian()
+    # test_model(config, args)
+    test_laplacian()
     # test_animation()
