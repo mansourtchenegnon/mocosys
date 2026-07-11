@@ -13,8 +13,8 @@ import cv2
 import glob
 # from lib.preprocess import h36m_coco_format, revise_kpts
 # from lib.hrnet.gen_kpts import gen_video_kpts as hrnet_pose
-import utility.tools as tools
-from nn import functional as func
+import utility.ops as ops
+from model import ops
 
 # 17 joints
 SKELETON_PAIRS_17 = [[0, 1], [0, 4], [0, 7], [7, 8],  # hips and spine
@@ -71,7 +71,7 @@ def get_pose2D(video_path, output_dir):
 
     print(keypoints.shape)
     print(scores.shape)
-    kpts = tools.normalize_screen_coordinates(keypoints, width, height)
+    kpts = ops.normalize_screen_coordinates(keypoints, width, height)
     kpts = np.concatenate([kpts, np.expand_dims(scores, axis=-1)], axis=-1)
     np.savez_compressed(f'{output_dir}data.npz', reconstruction=kpts)
     return keypoints, scores, kpts
@@ -235,12 +235,12 @@ def generate_vs_image(image_2d_dir, image_3d_dir, image_cor_3d_dir, output_dir):
 
 def generate_curves(estimation, correction, output_dir):
     length = estimation.shape[0]
-    est_acc = func.get_motion_dsc_per_part(func.get_acceleration(estimation), None)
-    est_vel = func.get_motion_dsc_per_part(func.get_velocity(estimation), None)
-    est_bone = func.get_skeleton_dsc_per_part(func.get_bones_length_variations(estimation), None)
-    cor_acc = func.get_motion_dsc_per_part(func.get_acceleration(correction), None)
-    cor_vel = func.get_motion_dsc_per_part(func.get_velocity(correction), None)
-    cor_bone = func.get_skeleton_dsc_per_part(func.get_bones_length_variations(correction), None)
+    est_acc = ops.get_motion_dsc_per_part(ops.get_acceleration(estimation), None)
+    est_vel = ops.get_motion_dsc_per_part(ops.get_velocity(estimation), None)
+    est_bone = ops.get_skeleton_dsc_per_part(ops.get_bones_length_variations(estimation), None)
+    cor_acc = ops.get_motion_dsc_per_part(ops.get_acceleration(correction), None)
+    cor_vel = ops.get_motion_dsc_per_part(ops.get_velocity(correction), None)
+    cor_bone = ops.get_skeleton_dsc_per_part(ops.get_bones_length_variations(correction), None)
     
     for i in tqdm.tqdm(range(length)):
         # r = np.arange(start=0, stop=length, step=1)

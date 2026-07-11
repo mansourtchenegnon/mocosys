@@ -8,12 +8,16 @@
 import datetime
 import argparse
 import tensorflow as tf
+import keras
 import keras.ops as kops
 import numpy
 from model.graph import skeleton
-from model.models import MotionFineTuningModel, SkeletonModel
+from model.models import MotionFineTuningModel, SkeletonGraphModel, SkeletonModel
 from model import ops, layers
-from utility import arguments, tools
+from model.modules import MoCoSys, SkeletonConstraintsComputation
+from utility import arguments, ops
+from model import metrics
+from utility.datasets.loaders import h36m_dataloader
 
 # %% Arguments parsing and configuration
 def parse_args():
@@ -24,10 +28,7 @@ def parse_args():
     # common arguments parsing
     parser = arguments.common_args(parser)
 
-    # configuration and neural networks model
-    parser.add_argument(
-        "-c", "--config", default="./config/config.yaml", type=str,
-        help="Path to the default configuration file")
+    #  neural networks model
     parser.add_argument(
         "-a", "--arch", type=str, default="mftmodel",# required=True,
         help='Model architecture to use. For example "mftmodel" or "skelmodel"')
@@ -64,7 +65,7 @@ def get_config():
 # %% Test
 def test_laplacian():
     ## Test pose and delta converter
-    gt = numpy.load("data/poses.npy")
+    gt = numpy.load("data/poses.npy") / 1000
     gt = kops.convert_to_tensor(numpy.reshape(gt, [-1, 17, 3]))
     gt = kops.expand_dims(gt, axis=0)
     print("gt", gt.shape)
@@ -135,15 +136,65 @@ def test_animation():
 def test_model(config, args):
     ## Test model
     # model = MotionFineTuningModel(config)
+    # model = keras.saving.load_model("checkpoints/mftmodel/20260709-150149/pretrained.keras")
     # sample_data = tf.random.uniform((64, 81, 17, 3))
-    model = SkeletonModel(config)
-    sample_data = tf.random.uniform((64, 81, 34))
-    model(sample_data)
-    model.summary(expand_nested=True)
-    # import yaml
-    # with open("test.yaml", "w") as fp:
-    #     yaml.dump(model.configuration, fp, default_flow_style=False)
+
+    # model = SkeletonModel(config)
+    # model = SkeletonGraphModel(config)
+    # model = keras.saving.load_model("checkpoints/skelmodel/20260709-163607/pretrained.keras")
+    # sample_data = tf.random.uniform((64, 81, 34))
+    # sample_data = tf.random.uniform((64, 81, 17, 2))
     
+    # model.summary(expand_nested=True)
+    # output = model(sample_data)
+    # print("output", output.shape)
+
+    ## Test module
+    from utility.datasets.loaders.h36m_dataloader import Human36mSotaDatasetLoader
+    dataset = Human36mSotaDatasetLoader(
+        training_set=False,
+        keypoints="cpn", chunk_size=0, fused=False
+        )
+    iterator = iter(dataset.get_dataset())
+    inp, poses_est, poses_gt, name = next(iterator)
+    # print("input", inp.shape)
+    # print("estimation", poses_est.shape)
+    # print("gt", poses_gt.shape)
+    module = SkeletonConstraintsComputation("checkpoints/skelmodel/20260710-224417/pretrained.keras")
+    module.set_normalization_parameters(dataset.get_parameters())
+    inputs = [poses_est, inp]
+    poses_cor, gamma, bones = module(inputs)
+    # print("bones", bones.shape, bones)
+    # print("gamma", gamma.shape)
+    
+    metrics_cor = {
+        "ep": metrics.mean_position_error(poses_cor, poses_gt).numpy()[0] * 1000,
+        "ev": metrics.mean_velocity_error(poses_cor, poses_gt).numpy()[0] * 1000,
+        "ea": metrics.mean_acceleration_error(poses_cor, poses_gt).numpy()[0] * 1000,
+        "ebv": metrics.bone_length_variance(poses_cor[0] * 1000).numpy(),
+        "eb": metrics.mean_bone_length_error(poses_cor, poses_gt).numpy() * 1000
+    }
+    print(f"correction\n{metrics_cor}")
+
+    metrics_est = {
+        "ep": metrics.mean_position_error(poses_est, poses_gt).numpy()[0] * 1000,
+        "ev": metrics.mean_velocity_error(poses_est, poses_gt).numpy()[0] * 1000,
+        "ea": metrics.mean_acceleration_error(poses_est, poses_gt).numpy()[0] * 1000,
+        "ebv": metrics.bone_length_variance(poses_est[0] * 1000).numpy(),
+        "eb": metrics.mean_bone_length_error(poses_est, poses_gt).numpy() * 1000
+    }
+    print(f"estimation\n{metrics_est}")
+    # from rendering import animation
+    # animation.animate_motions_3way(poses_gt[0] * 1000, poses_est[0] * 1000, poses_cor[0] * 1000)
+
+def test():
+    gt = numpy.load("data/poses.npy")
+    gt = numpy.reshape(gt, [-1, 17, 3])
+    layer = layers.PosesToBones()
+    bones = layer(gt)
+    print("gt", gt.shape)
+    print("bones", bones.shape)
+
 # %% Main execution
 if __name__ == "__main__":
     print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
@@ -151,6 +202,7 @@ if __name__ == "__main__":
     config, args = get_config()    
     # training
     # test_dataset(config, args)
-    # test_model(config, args)
-    test_laplacian()
+    test_model(config, args)
+    # test_laplacian()
     # test_animation()
+    # test()

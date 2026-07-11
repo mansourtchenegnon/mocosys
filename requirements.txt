@@ -4,4 +4,5 @@ keras
 tqdm
 scikit-learn
 opencv-python
-tensorflow
+pyyaml
+tensorflow==2.16.2

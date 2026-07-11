@@ -12,9 +12,9 @@ import keras
 import sys
 
 import yaml
-from utility import arguments, tools
+from utility import arguments, ops
 from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader, Human36mSotaDatasetLoader
-from model.models import MotionFineTuningModel, SkeletonModel
+from model.models import MotionFineTuningModel, SkeletonGraphModel, SkeletonModel
 from training.trainers import MFTModelTrainer, SkeletonModelTrainer
 import numpy as np
 
@@ -29,25 +29,22 @@ def parse_args():
 
     # configuration and neural networks model
     parser.add_argument(
-        "-c", "--config", default="./config/config.yaml", type=str,
-        help="Path to the default configuration file")
-    parser.add_argument(
         "-a", "--arch", type=str, default="mftmodel",# required=True,
         help='Model architecture to use. For example "mftmodel" or "skelmodel"')
     parser.add_argument("--cuda", action="store_true", default=False,
                         help="enables CUDA training")
 
     # Architecture parameters
-    parser.add_argument("--channels_in", type=int, help="Number of input channels (2 for 2d, 3 for 3d).")
-    parser.add_argument("--channels_out", type=int, help="Number of output channels (2 for 2d, 3 for 3d).")
-    parser.add_argument("--channels", type=int, help="Number of channels for intermediate layers.")
-    parser.add_argument("--window", type=int, help="Window size for graph convolution.")
-    parser.add_argument("--stages", type=int, help="Number of times to loop in the intermediate layers.")
+    # parser.add_argument("--channels_in", type=int, help="Number of input channels (2 for 2d, 3 for 3d).")
+    # parser.add_argument("--channels_out", type=int, help="Number of output channels (2 for 2d, 3 for 3d).")
+    # parser.add_argument("--channels", type=int, help="Number of channels for intermediate layers.")
+    # parser.add_argument("--window", type=int, help="Window size for graph convolution.")
+    # parser.add_argument("--stages", type=int, help="Number of times to loop in the intermediate layers.")
 
     # Running parameters
-    parser.add_argument("--batch_size", default=64, type=int, help="The batch size")
-    parser.add_argument("--frames", type=int, help="Size of data cut in number of frames")
-    parser.add_argument("--epochs", default=10, type=int, help="Number of training epochs")
+    # parser.add_argument("--batch_size", default=64, type=int, help="The batch size")
+    # parser.add_argument("--frames", type=int, help="Size of data cut in number of frames")
+    # parser.add_argument("--epochs", default=10, type=int, help="Number of training epochs")
 
     # Reproducibility measure
     parser.add_argument("--seed", default=97, type=int, help="Random seed for reproducibility.")
@@ -89,11 +86,12 @@ def train_skeleton_model(config, args):
             keypoints="gt",
             batch_size=config["running"]["batch_size"],
             chunk_size=config["running"]['data_cut'],
-            fused=True)
+            fused=False)
     else:
         raise Exception(f"Dataset {args.dataset} not recognized !")
     # Create model and trainer
     model = SkeletonModel(config)
+    # model = SkeletonGraphModel(config)
     trainer = SkeletonModelTrainer(config, model, trainset)
     # Start training
     trainer.train()
@@ -106,40 +104,41 @@ def evaluate_skeleton_model(config, args):
             keypoints="gt",
             batch_size=config["running"]["batch_size"],
             chunk_size=config["running"]['data_cut'],
-            fused=True)
+            fused=False)
     else:
         raise Exception(f"Dataset {args.dataset} not recognized !")
     # Load model and evaluate
-    # model = keras.saving.load_model(f"{args.resume}/best.keras")
-    model = SkeletonModel(config)
-    model(tf.random.uniform((1, 27, 34)))
-    model.load_weights(f"{args.resume}/best.weights.h5")
+    model = keras.saving.load_model(f"{args.resume}/pretrained.keras")
+    # model = SkeletonModel(config)
+    # model(tf.random.uniform((1, 27, 34)))
+    # model.load_weights(f"{args.resume}/pretrained.keras")
     # Load model parameters
     parameters = None
-    with np.load(f"{args.resume}/normalization.npz") as data:
-        parameters = []
-        parameters.append(data["inputs_mean"])
-        parameters.append(data["inputs_std"])
-        parameters.append(data["bones_mean"])
-        parameters.append(data["bones_std"])
-    if not parameters:
-        print("Loading normalization testdataset")
-        parameters = [i for i in testset.get_parameters()]
+    # with np.load(f"{args.resume}/normalization.npz") as data:
+    #     parameters = []
+    #     parameters.append(data["inputs_mean"])
+    #     parameters.append(data["inputs_std"])
+    #     parameters.append(data["bones_mean"])
+    #     parameters.append(data["bones_std"])
+    print("Loading normalization testdataset")
+    parameters = [i for i in testset.get_parameters()]
     bone_errors = []
     bone_error_list = {}
-    print("parameters", len(parameters))
     for video_idx, datas in enumerate(testset.get_dataset()):
         inputs_2d, bones, video_name = datas
         video_name = str(video_name[0].numpy(), "utf-8")
         bones_prediction = model(inputs_2d)
+        # bones_prediction = model.forward_denormalized(inputs_2d)
         # bones = f.bones_to_skeleton(bones)
         # bone length
         bone_error = tf.reduce_mean(tf.abs(
-            tools.denormalise(
-                keras.ops.max(bones, axis=1, keepdims=True),
-                parameters[2], parameters[3])
-            - tools.denormalise(bones_prediction, parameters[2], parameters[3]))
-        ) * 1000
+            ops.denormalise(
+                # keras.ops.max(bones, axis=1, keepdims=True), parameters[2], parameters[3])
+                keras.ops.max(bones, axis=1, keepdims=True), model.get_normalization_parameters()[2], model.get_normalization_parameters()[3])
+                # - functions.denormalise(bones_prediction, parameters[2], parameters[3])
+                - ops.denormalise(bones_prediction, model.get_normalization_parameters()[2], model.get_normalization_parameters()[3])
+                # - bones_prediction
+        )) * 1000
         bone_errors.append(bone_error)
 
         action_name = video_name.split("_")[1].split(" ")[0]

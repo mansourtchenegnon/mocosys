@@ -11,6 +11,7 @@ import argparse
 import sys
 import numpy
 import tensorflow as tf
+from model.modules import MoCoSys
 from utility import arguments
 from utility.datasets.loaders.h36m_dataloader import Human36mSotaDatasetLoader
 from model.models import MotionFineTuningModel
@@ -26,27 +27,15 @@ def parse_args():
     # common arguments parsing
     parser = arguments.common_args(parser)
 
-    # configuration and neural networks model
-    parser.add_argument(
-        "-c", "--config", default="./config/config.yaml", type=str,
-        help="Path to the default configuration file")
-    parser.add_argument(
-        "-a", "--arch", type=str, default="mftmodel",# required=True,
-        help='Model architecture to use. For example "mftmodel" or "skelmodel"')
-    parser.add_argument("--cuda", action="store_true", default=False,
-                        help="enables CUDA training")
-
-    # Architecture parameters
-    parser.add_argument("--channels_in", type=int, help="Number of input channels (2 for 2d, 3 for 3d).")
-    parser.add_argument("--channels_out", type=int, help="Number of output channels (2 for 2d, 3 for 3d).")
-    parser.add_argument("--channels", type=int, help="Number of channels for intermediate layers.")
-    parser.add_argument("--window", type=int, help="Window size for graph convolution.")
-    parser.add_argument("--stages", type=int, help="Number of times to loop in the intermediate layers.")
+    # model loading paths
+    parser.add_argument("--skel_model_path", required=True, type=str, help="Path to the skeleton model checkpoints")
+    parser.add_argument("--mft_model_path", required=True, type=str, help="Path to the motion fine tuning model checkpoints")
 
     # Running parameters
-    parser.add_argument("--batch_size", default=64, type=int, help="The batch size")
-    parser.add_argument("--frames", type=int, help="Size of data cut in number of frames")
+    parser.add_argument("--frames", default=0, type=int, help="Size of data cut in number of frames")
     parser.add_argument("--epochs", default=5, type=int, help="Number of training epochs")
+    parser.add_argument("--cuda", action="store_true", default=False,
+                        help="enables CUDA training")
 
     # Reproducibility measure
     parser.add_argument("--seed", default=97, type=int, help="Random seed for reproducibility.")
@@ -83,6 +72,19 @@ def get_config():
     config["running"]["version"] = version
     return config, args
 
+def load_dataset(config, args):
+    if args.dataset == "h36m":
+        dataset = Human36mSotaDatasetLoader(
+            training_set=False,
+            estimation=args.estimator,
+            keypoints=args.keypoints,
+            chunk_size=args.frames,
+            fused=False
+        )
+    else:
+        raise Exception(f"Dataset {args.dataset} not recognized !")
+    return dataset
+
 # %% Evaluation methods
 def evaluate_with_metrics(model, dataset : Human36mSotaDatasetLoader, output_folder):
     if not os.path.exists(output_folder):
@@ -100,46 +102,46 @@ def evaluate_with_metrics(model, dataset : Human36mSotaDatasetLoader, output_fol
     bone_variance_list = {}
 
     for video_idx, datas in enumerate(dataset.get_dataset()):
-        poses_2d_gt, poses_3d_estimation, poses_3d_gt, video_name = datas
+        poses_2d, poses_3d_estimation, poses_3d_gt, video_name = datas
         video_name = str(video_name[0].numpy(), "utf-8")
-        poses_3d_prediction = model([poses_3d_estimation, poses_2d_gt])
+        poses_3d_prediction = model([poses_3d_estimation, poses_2d])
         # poses_3d_prediction = network(poses_3d_estimation)
 
-        poses_3d_prediction = poses_3d_prediction - tf.tile(
-            poses_3d_prediction[:, :, :3], [1, 1, 17]
-        )
+        # poses_3d_prediction = poses_3d_prediction - tf.tile(
+        #     poses_3d_prediction[:, :, :3], [1, 1, 17]
+        # )
         # MPJPE
         error = (
-                metrics.mean_position_error(poses_3d_gt, poses_3d_prediction)
-                * 1000
+            metrics.mean_position_error(poses_3d_gt, poses_3d_prediction)
+            * 1000
         )
-        errors.append(error)
+        errors.append(error.numpy())
         # velocity
         velocity_error = (
-                metrics.mean_velocity_error(poses_3d_gt, poses_3d_prediction)
-                * 1000
+            metrics.mean_velocity_error(poses_3d_gt, poses_3d_prediction)
+            * 1000
         )
-        velocity_errors.append(velocity_error)
+        velocity_errors.append(velocity_error.numpy())
 
         # acceleration
         acceleration_error = (
-                metrics.mean_acceleration_error(poses_3d_gt, poses_3d_prediction)
-                * 1000
+            metrics.mean_acceleration_error(poses_3d_gt, poses_3d_prediction)
+            * 1000
         )
-        acceleration_errors.append(acceleration_error)
+        acceleration_errors.append(acceleration_error.numpy())
 
         # bone length
         bone_error = (
-                metrics.mean_bone_length_error(poses_3d_gt, poses_3d_prediction)
-                * 1000
+            metrics.mean_bone_length_error(poses_3d_gt, poses_3d_prediction)
+            * 1000
         )
-        bone_errors.append(bone_error)
+        bone_errors.append(bone_error.numpy())
 
         # bone length
         bone_variance = (
             metrics.bone_length_variance(poses_3d_prediction[0] * 1000)
         )
-        bone_variances.append(bone_variance)
+        bone_variances.append(bone_variance.numpy())
 
         action_name = video_name.split("_")[1].split(" ")[0]
 
@@ -271,15 +273,14 @@ def rendering_animation(model, dataset : Human36mSotaDatasetLoader, output_folde
             video_name = str(video_name[0].numpy(), "utf-8")
             poses_3d_prediction = model([poses_3d_estimation, poses_2d_gt])
 
-            poses_3d_prediction = poses_3d_prediction - tf.tile(
-                poses_3d_prediction[:, :, :3], [1, 1, 17]
-            )
+            # poses_3d_prediction = poses_3d_prediction - tf.tile(
+            #     poses_3d_prediction[:, :, :3], [1, 1, 17]
+            # )
 
             animation.animate_motions_vs(
                 poses_3d_prediction[0].numpy() * 1000,
                 poses_3d_estimation[0].numpy() * 1000
             )
-
 
 
 # %% Main execution
@@ -294,18 +295,12 @@ if __name__ == "__main__":
     
     # evaluation
     # Load dataset
-    if args.dataset == "h36m":
-        dataset = Human36mSotaDatasetLoader(
-            training_set=False,
-            batch_size=1,
-            keypoints="cpn",
-            location="data/human36m"
-        )
-    else:
-        raise Exception(f"Dataset {args.dataset} not recognized !")
-    
+    dataset = load_dataset(config, args)
     # Load model
-    
+    module = MoCoSys(args.skel_model_path, args.mft_model_path)  
+    module.set_normalization_parameters(dataset.get_parameters())  
     
     if args.metrics:
-        evaluate_with_metrics()
+        evaluate_with_metrics(module, dataset, "evaluation")
+    if args.animation:
+        rendering_animation(module, dataset, "evaluation")

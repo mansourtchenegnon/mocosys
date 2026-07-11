@@ -62,6 +62,7 @@ class DeltaConverter(keras.layers.Layer):
                 "t": self.t,
                 "v": self.v,
                 "features": self.features,
+                "l_mat": self.l_mat
             }
         )
         return config
@@ -165,7 +166,7 @@ class GraphConv(keras.layers.Layer):
             if self.channels != input_shape[-1]:
                 self.residual = False
 
-    def call(self, inputs, *args, **kwargs):
+    def call(self, inputs):
         assert (
                 self.A.shape[-1] == inputs.shape[-2]
         ), "Shapes don't match between A matrix {} and inputs {}".format(
@@ -191,6 +192,7 @@ class GraphConv(keras.layers.Layer):
         config = {
                 "channels": self.channels,
                 "activation": keras.activations.serialize(self.activation),
+                "adjacency_matrix": self.A,
                 "use_bias": self.use_bias,
                 "use_mapper": self.use_mapper,
                 "residual": self.residual,
@@ -208,13 +210,13 @@ class SkeletonGraphConv(keras.layers.Layer):
             channels,
             use_bias=True,
             trainable=True,
-            activation=None,
+            activation='relu',
             **kwargs
     ):
         super().__init__(**kwargs)
-        # self.skeleton = skel
+        self.skeleton = skel
         self.joints = skel.get_num_of_joints()
-        self.D = create_matrix_D(skel, 1)
+        self.D = keras.create_matrix_D(skel, 1)
         self.channels = channels
         self.channels_out = channels_out
         self.use_bias = use_bias
@@ -244,9 +246,8 @@ class SkeletonGraphConv(keras.layers.Layer):
                 initializer="random_normal",
                 trainable=True,
             )
-        
 
-    def call(self, inputs, *args, **kwargs):
+    def call(self, inputs):
         assert (
                 self.D.shape[-1] == inputs.shape[-2]
         ), "Shapes don't match between D matrix {} and inputs {}".format(
@@ -266,12 +267,10 @@ class SkeletonGraphConv(keras.layers.Layer):
     def get_config(self):
         base_config = super().get_config()
         config = {
-                "channels": self.channels,
-                "activation": keras.activations.serialize(self.activation),
-                "use_bias": self.use_bias,
-                "joints": self.joints,
-                "trainable": self.trainable
-            }
+            "skel": self.skeleton,
+            "channels": self.channels,
+            "activation": keras.activations.serialize(self.activation),
+        }
         return {**base_config, **config}
 
 
@@ -288,7 +287,7 @@ class SkeletonSymmetrisationLayer(keras.layers.Layer):
         else:
             self.unifier = keras.layers.Average()
 
-    def call(self, inputs, *args, **kwargs):
+    def call(self, inputs):
         hips = self.unifier([inputs[..., 0:1], inputs[..., 3:4]])
         femur = self.unifier([inputs[..., 1:2], inputs[..., 4:5]])
         tibia = self.unifier([inputs[..., 2:3], inputs[..., 5:6]])
@@ -301,9 +300,9 @@ class SkeletonSymmetrisationLayer(keras.layers.Layer):
         radius = self.unifier([inputs[..., 12:13], inputs[..., 15:16]])
         outputs = keras.ops.concatenate((
             hips, femur, tibia,
-            hips, femur, tibia,
+            # hips, femur, tibia,
             spine_back, spine_top, neck, head,
-            clavicle, humerus, radius,
+            # clavicle, humerus, radius,
             clavicle, humerus, radius
         ),
             axis=-1)
@@ -313,58 +312,112 @@ class SkeletonSymmetrisationLayer(keras.layers.Layer):
     def get_config(self):
         base_config = super().get_config()
         config = {
-            "unifier" : self.unifier
+            "op_type" : self.op_type
         }
         return {**base_config, **config}
 
 
-class PosesToSkeletonLayer(keras.layers.Layer):
+@keras.saving.register_keras_serializable()
+class PosesToBones(keras.layers.Layer):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def call(self, inputs, *args, **kwargs):
-        shape = keras.ops.shape(inputs)
-        batch, length, joints, _ = shape
-        hips_right = inputs[..., 0, :] - inputs[..., 1, :]
-        femur_right = inputs[..., 1, :] - inputs[..., 2, :]
-        tibia_right = inputs[..., 2, :] - inputs[..., 3, :]
+    def _distance(self, position1, position2):
+        return keras.ops.norm(position1 - position2, axis=-1, keepdims=True)
 
-        hips_left = inputs[..., 0, :] - inputs[..., 4, :]
-        femur_left = inputs[..., 4, :] - inputs[..., 5, :]
-        tibia_left = inputs[..., 5, :] - inputs[..., 6, :]
+    def call(self, inputs):
+        hips = (
+        self._distance(inputs[..., 0, :], inputs[..., 1, :])
+            + self._distance(inputs[..., 0, :], inputs[..., 4, :])
+        ) / 2
+        femur = (
+            self._distance(inputs[..., 1, :], inputs[..., 2, :])
+            + self._distance(inputs[..., 4, :], inputs[..., 5, :])
+        ) / 2  # 
+        tibia = (
+            self._distance(inputs[..., 2, :], inputs[..., 3, :])
+            + self._distance(inputs[..., 5, :], inputs[..., 6, :])
+        ) / 2
+        spine_back = self._distance(
+            inputs[..., 0, :], inputs[..., 7, :]
+        )
+        spine_top = self._distance(
+            inputs[..., 7, :], inputs[..., 8, :]
+        )
+        neck = self._distance(
+            inputs[..., 8, :], inputs[..., 9, :]
+        )
+        head = self._distance(
+            inputs[..., 9, :], inputs[..., 10, :]
+        )
+        clavicle = (
+            self._distance(inputs[..., 8, :], inputs[..., 11, :])
+            + self._distance(inputs[..., 8, :], inputs[..., 14, :])
+        ) / 2
+        humerus = (
+            self._distance(inputs[..., 14, :], inputs[..., 15, :])
+            + self._distance(inputs[..., 11, :], inputs[..., 12, :])
+        ) / 2
+        radius = (
+            self._distance(inputs[..., 15, :], inputs[..., 16, :])
+            + self._distance(inputs[..., 12, :], inputs[..., 13, :])
+        ) / 2
 
-        spine_back = inputs[..., 0, :] - inputs[..., 7, :]
-        spine_top = inputs[..., 7, :] - inputs[..., 8, :]
-        neck = inputs[..., 8, :] - inputs[..., 9, :]
-        head = inputs[..., 9, :] - inputs[..., 10, :]
-
-        clavicle_left = inputs[..., 8, :] - inputs[..., 11, :]
-        humerus_left = inputs[..., 11, :] - inputs[..., 12, :]
-        radius_left = inputs[..., 12, :] - inputs[..., 13, :]
-
-        clavicle_right = inputs[..., 8, :] - inputs[..., 14, :]
-        humerus_right = inputs[..., 14, :] - inputs[..., 15, :]
-        radius_right = inputs[..., 15, :] - inputs[..., 16, :]
-
-        skeleton = keras.ops.concatenate((
-            hips_right, femur_right, tibia_right,
-            hips_left, femur_left, tibia_left,
-            spine_back, spine_top, neck, head,
-            clavicle_left, humerus_left, radius_left,
-            clavicle_right, humerus_right, radius_right
-            ), axis=-1)
-
-        skeleton = keras.ops.reshape(skeleton, [batch, length, joints - 1, -1])
+        skeleton = keras.ops.concatenate((hips, femur, tibia, spine_back, spine_top, neck, head, clavicle, humerus, radius),
+                         axis=-1)
         return skeleton
+    
+    # def call(self, inputs):
+    #     hips = (
+    #     self._distance(inputs[..., 0:1, :], inputs[..., 1:2, :])
+    #         + self._distance(inputs[..., 0:1, :], inputs[..., 4:5, :])
+    #     ) / 2
+    #     femur = (
+    #         self._distance(inputs[..., 1:2, :], inputs[..., 2:3, :])
+    #         + self._distance(inputs[..., 4:5, :], inputs[..., 5:6, :])
+    #     ) / 2  # 
+    #     tibia = (
+    #         self._distance(inputs[..., 2:3, :], inputs[..., 3:4, :])
+    #         + self._distance(inputs[..., 5:6, :], inputs[..., 6:7, :])
+    #     ) / 2
+    #     spine_back = self._distance(
+    #         inputs[..., 0:1, :], inputs[..., 7:8, :]
+    #     )
+    #     spine_top = self._distance(
+    #         inputs[..., 7:8, :], inputs[..., 8:9, :]
+    #     )
+    #     neck = self._distance(
+    #         inputs[..., 8:9, :], inputs[..., 9:10, :]
+    #     )
+    #     head = self._distance(
+    #         inputs[..., 9:10, :], inputs[..., 10:11, :]
+    #     )
+    #     clavicle = (
+    #         self._distance(inputs[..., 8:9, :], inputs[..., 11:12, :])
+    #         + self._distance(inputs[..., 8:9, :], inputs[..., 14:15, :])
+    #     ) / 2
+    #     humerus = (
+    #         self._distance(inputs[..., 14:15, :], inputs[..., 15:16, :])
+    #         + self._distance(inputs[..., 11:12, :], inputs[..., 12:13, :])
+    #     ) / 2
+    #     radius = (
+    #         self._distance(inputs[..., 15:16, :], inputs[..., 16:17, :])
+    #         + self._distance(inputs[..., 12:13, :], inputs[..., 13:14, :])
+    #     ) / 2
+
+    #     skeleton = keras.ops.concatenate((hips, femur, tibia, spine_back, spine_top, neck, head, clavicle, humerus, radius),
+    #                      axis=-1)
+    #     return skeleton
 
 
+@keras.saving.register_keras_serializable()
 class SkeletonAdjustementLayer(keras.layers.Layer):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def call(self, inputs, *args, **kwargs):
+    def call(self, inputs):
         batch, length, joints, _ = keras.ops.shape(inputs)
         hips_right = inputs[..., 0, :] - inputs[..., 1, :]
         femur_right = inputs[..., 1, :] - inputs[..., 2, :]
@@ -440,6 +493,7 @@ class SkeletonAdjustementLayer(keras.layers.Layer):
 
 
 # %% Sampling layer
+@keras.saving.register_keras_serializable()
 class Sampling(keras.layers.Layer):
     """A sampling layer that uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
 
@@ -465,13 +519,13 @@ class Sampling(keras.layers.Layer):
         return {**base_config, **config}
 
 
-
+@keras.saving.register_keras_serializable()
 class Projection(keras.layers.Layer):
     def __init__(self, direction, **kwargs):
         super().__init__(**kwargs)
         self.direction = direction
 
-    def call(self, inputs, *args, **kwargs):
+    def call(self, inputs):
         output = keras.ops.einsum('b t j c, ...c -> b t j', inputs, self.direction) / keras.ops.norm(self.direction)
         return keras.ops.expand_dims(output, axis=-1)
 
@@ -482,6 +536,7 @@ def Residual(inputs, operation):
     return x
 
 
+@keras.saving.register_keras_serializable()
 class SkeletonSimplificationLayer(keras.layers.Layer):
 
     def __init__(self, op_type="avg", **kwargs):
@@ -494,7 +549,7 @@ class SkeletonSimplificationLayer(keras.layers.Layer):
         else:
             self.unifier = keras.layers.Average()
 
-    def call(self, inputs, *args, **kwargs):
+    def call(self, inputs):
         hips = self.unifier([inputs[..., 0:1], inputs[..., 3:4]])
         femur = self.unifier([inputs[..., 1:2], inputs[..., 4:5]])
         tibia = self.unifier([inputs[..., 2:3], inputs[..., 5:6]])
@@ -524,7 +579,47 @@ class SkeletonSimplificationLayer(keras.layers.Layer):
         return config
 
 
-def ResidualConvolutionBlock(inputs, channels, kernel, dropout_rate=None, padding="SAME", normalize=False,):
+@keras.saving.register_keras_serializable()
+class ResidualConvolutionBlock(keras.layers.Layer):
+    def __init__(self, channels, kernel, activation="relu", dropout_rate=None, padding="SAME", normalize=False, **kwargs):
+        super().__init__(**kwargs)
+        self.conv = keras.layers.Conv1D(channels, kernel, 1, padding=padding)
+        self.drop = keras.layers.Dropout(rate=dropout_rate) if dropout_rate else None
+        self.norm = keras.layers.BatchNormalization() if normalize else None
+        self.activation = self.activation = keras.activations.get(activation)
+
+    def call(self, inputs):
+        outputs = self.conv(inputs)
+        if self.drop:
+            outputs = self.drop(outputs)
+        if self.activation:
+            outputs = self.activation(outputs)
+        if self.norm:
+            outputs = self.norm(outputs)
+        return inputs + outputs
+
+
+@keras.saving.register_keras_serializable()
+class ResidualDenseBlock(keras.layers.Layer):
+    def __init__(self, units, activation="relu", dropout_rate=None, normalize=False, **kwargs):
+        super().__init__(**kwargs)
+        self.conv = keras.layers.Dense(units)
+        self.drop = keras.layers.Dropout(rate=dropout_rate) if dropout_rate else None
+        self.norm = keras.layers.BatchNormalization() if normalize else None
+        self.activation = self.activation = keras.activations.get(activation)
+
+    def call(self, inputs):
+        outputs = self.conv(inputs)
+        if self.drop:
+            outputs = self.drop(outputs)
+        if self.activation:
+            outputs = self.activation(outputs)
+        if self.norm:
+            outputs = self.norm(outputs)
+        return inputs + outputs
+
+
+def sequential_residual_convolution_block(inputs, channels, kernel, dropout_rate=None, padding="SAME", normalize=False,):
     x = keras.layers.Conv1D(channels, kernel, 1, padding=padding)(inputs)
     if dropout_rate:
         x = keras.layers.Dropout(rate=dropout_rate)(x)
@@ -534,7 +629,7 @@ def ResidualConvolutionBlock(inputs, channels, kernel, dropout_rate=None, paddin
     x = keras.layers.Add()([inputs, x])
     return x
 
-def ResidualDenseBlock(inputs, units, kernel, dropout_rate=None, padding="SAME", normalize=False,):
+def sequential_residual_dense_block(inputs, units, dropout_rate=None, normalize=False,):
     x = keras.layers.Dense(units)(inputs)
     if dropout_rate:
         x = keras.layers.Dropout(rate=dropout_rate)(x)
@@ -554,7 +649,7 @@ class AdaptiveAvgPool(keras.layers.Layer):
         else:
             self.pool = keras.layers.AveragePooling1D(size)
 
-    def call(self, inputs, *args, **kwargs):
+    def call(self, inputs):
         outputs = self.pool(inputs)
         return outputs
 
@@ -577,7 +672,7 @@ class AdaptiveMaxPool(keras.layers.Layer):
         else:
             self.pool = keras.layers.MaxPool1D(size)
 
-    def call(self, inputs, *args, **kwargs):
+    def call(self, inputs):
         outputs = self.pool(inputs)
         return outputs
 
@@ -625,7 +720,11 @@ class GraphFeedForward(keras.layers.Layer):
         self.layer_norm = keras.layers.LayerNormalization()
 
 
-def call(self, inputs, *args, **kwargs):
+def call(self, inputs):
     x = self.add([inputs, self.out(self.drop(self.hidden(inputs)))])
     x = self.layer_norm(x)
     return x
+
+class CustomLayer(keras.layers.Layer):
+    def __int__(self):
+        pass

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 @author: Mansour Tchenegnon
-@version: 1.0
+@version: 2026.07
 """
 # %% Imports
 import keras
@@ -15,10 +15,10 @@ from model import layers, ops
 class MotionFineTuningModel(keras.Model):
     """ Neural Network for the Motion Fine-Tuning stage.
     """
-    def __init__(self, config, bones_pairs : list=H36M_17_JOINTS_SKELETON_BONES_PAIRS, name="motion-fine-tuning-model", *args, **kwargs):
+    def __init__(self, configuration, bones_pairs : list=H36M_17_JOINTS_SKELETON_BONES_PAIRS, name="motion-fine-tuning-model", *args, **kwargs):
         kwargs['name'] = name
         super().__init__(*args, **kwargs)
-        self.configuration = config
+        self.configuration = configuration
         self.joints = self.configuration["dataset"]["graph"]["skeleton"]["number_of_joints"]
         self.bones_pairs = bones_pairs
         self.skeleton = SkeletonGraph(self.joints, self.bones_pairs)
@@ -77,109 +77,176 @@ class MotionFineTuningModel(keras.Model):
         base_config = super().get_config()
         config = {
             "configuration": self.configuration,
-            "window": self.window,
-            "num_stages": self.num_stages,
             "bones_pairs" : self.bones_pairs
         }
         return {**base_config, **config}
 
 @keras.saving.register_keras_serializable()
-class SkeletonModel(keras.Model):
+class BaseSkeletonModel(keras.Model):
     """ Neural network model that estimates bone lengths from a sequence of poses.
     """    
-    def __init__(self, params, name="skeleton-model", *args, **kwargs):
+    def __init__(self, configuration, name="base-skeleton-model", *args, **kwargs):
         """_summary_
 
         Parameters
         ----------
-        params : types.SimpleNamespace
+        params : dict
             Contains the configuration parameters for the module.
         name : str, optional
             Name for the neural network, by default "skeleton-model"
         """        
         kwargs["name"] = name
         super().__init__(*args, **kwargs)
-        self.params = params
-        if self.params:
-            channels = self.params["model"]["arch"]["units"]
-            joints = self.params["dataset"]["graph"]["skeleton"]["number_of_joints"]
-            input_dimension = self.params["dataset"]["graph"]["skeleton"]["joint_input_features"]
-        else:
-            channels = 32
-            joints = 17
-            input_dimension = 2
-        input_features = joints * input_dimension
-        features_out = 10
-        dropout_rate = 0.2
-        self._bones_mean = []
-        self._bones_std = []
-        self._inputs_mean = []
-        self._inputs_std = []
+        self.configuration = configuration
+        # self.configuration["normalization"] = [
+        #     keras.ops.ones((1,)),  #0 inputs mean
+        #     keras.ops.ones((1,)),  #1 inputs std
+        #     keras.ops.ones((1,)),  #2 bones mean
+        #     keras.ops.ones((1,))   #3 bones std
+        # ]
         
-        # spatial encoder
-        inputs = keras.layers.Input([None, input_features])
-        x = keras.layers.Conv1D(channels, 1, 1, padding="same", activation="relu")(inputs)
-        x = layers.ResidualConvolutionBlock(x, channels, 1, dropout_rate)
-        x = layers.ResidualConvolutionBlock(x, channels, 1, dropout_rate)
-
-        # Temporal encoder
-        x = keras.layers.Conv1D(channels, 3, 1, padding="same", activation="relu")(x)
-        x = layers.ResidualConvolutionBlock(x, channels, 3, dropout_rate)
-        x = layers.ResidualConvolutionBlock(x, channels, 3, dropout_rate)
-        
-        # Regression block
-        x = keras.layers.BatchNormalization()(x)
-        x = keras.layers.GlobalAveragePooling1D(keepdims=True)(x)
-        outputs = keras.layers.Conv1D(features_out, 1)(x)
-        self.bones_estimator = keras.Model(
-            inputs=inputs,
-            outputs=outputs,
-            name=f"{self.name}.bone_estimator")
-
-    def call(self, inputs, training=False):
-        outputs = self.bones_estimator(inputs, training=training)
-        return outputs
-    
     def forward_denormalized(self, inputs):
         outputs = self.call(inputs)
         return self._denormalize_data(outputs)
     
     def set_normalization_parameters(self, parameters):
-        self._inputs_mean = parameters[0]
-        self._inputs_std = parameters[1]
-        self._bones_mean = parameters[2]
-        self._bones_std = parameters[3]
+        self.configuration["normalization"] = [keras.ops.convert_to_tensor(parameters[i]) for i in range(len(parameters))] 
+
+    def load_normalization(self):
+        self.configuration["normalization"] = [keras.ops.convert_to_tensor(conf['config']['value']) for conf in self.configuration["normalization"]] 
+    
+    @classmethod
+    def from_config(cls, config, custom_objects=None):
+        model = super().from_config(config, custom_objects)
+        model.load_normalization()
+        return model
     
     def _normalize_data(self, data):
-        mean = kops.ones(data.shape, dtype='float32') * self._bones_mean
-        std = kops.ones(data.shape, dtype='float32') * self._bones_std
+        mean = kops.ones(data.shape, dtype='float32') * self.configuration["normalization"][2]
+        std = kops.ones(data.shape, dtype='float32') * self.configuration["normalization"][3]
         normalized_data = kops.divide(data - mean, std)
         return normalized_data
 
     def _denormalize_data(self, data):
-        D = self._bones_mean.shape[0]  # Dimensionality
+        D = self.configuration["normalization"][2].shape[0]  # Dimensionality
         shape = [1 for _ in range(len(data.shape)-1)] + [D]
         repeat = list(data.shape[:-1]) + [1]
         std = kops.tile(
-            kops.reshape(self._bones_std, shape),
+            kops.reshape(self.configuration["normalization"][3], shape),
             repeat
         )
         mean = kops.tile(
-            kops.reshape(self._bones_mean, shape),
+            kops.reshape(self.configuration["normalization"][2], shape),
             repeat
         )
-        return kops.multiply(data * std) + mean
+        return kops.multiply(data, std) + mean
     
     def get_normalization_parameters(self):
-        return self._inputs_mean, self._inputs_std, self._bones_mean, self._bones_std
+        return self.configuration["normalization"]
     
     def get_config(self):
         base_config = super().get_config()
         config = {
-            "params": self.params,
-            "inputs_mean": self._inputs_mean,
-            "inputs_std": self._inputs_std,
-            "bones_mean": self._bones_mean,
-            "bones_std": self._bones_std,
+            "configuration": self.configuration
         }
         return {**base_config, **config}
+
+@keras.saving.register_keras_serializable()
+class SkeletonModel(BaseSkeletonModel):
+    """ Neural network model that estimates bone lengths from a sequence of poses.
+    """    
+    def __init__(self, configuration, name="skeleton-model", *args, **kwargs):
+        """_summary_
+
+        Parameters
+        ----------
+        params : dict
+            Contains the configuration parameters for the module.
+        name : str, optional
+            Name for the neural network, by default "skeleton-model"
+        """        
+        kwargs["name"] = name
+        super().__init__(configuration, *args, **kwargs)
+        if self.configuration:
+            channels = self.configuration["model"]["arch"]["units"]
+        else:
+            channels = 32
+        self.features_out = 10
+        dropout_rate = 0.2
+        
+        # spatial encoder
+        self.expand_channels = keras.layers.Conv1D(channels, 1, 1, padding="same", activation="relu")
+        self.sp_enc_block1 = layers.ResidualConvolutionBlock(channels, 1, dropout_rate=dropout_rate)
+        self.sp_enc_block2 = layers.ResidualConvolutionBlock(channels, 1, dropout_rate=dropout_rate)
+
+        # Temporal encoder
+        self.tp_enc_block1 = layers.ResidualConvolutionBlock(channels, 3, dropout_rate=dropout_rate)
+        self.tp_enc_block2 = layers.ResidualConvolutionBlock(channels, 3, dropout_rate=dropout_rate)
+        
+        # Regression block
+        self.reg_norm = keras.layers.BatchNormalization()
+        self.reg_pool = keras.layers.GlobalAveragePooling1D(keepdims=True)
+        self.reg_out = keras.layers.Conv1D(self.features_out, 1)
+
+
+    def call(self, inputs):
+        outputs = keras.ops.reshape(inputs, (*inputs.shape[:-2], -1))
+        outputs = self.expand_channels(outputs)
+        outputs = self.sp_enc_block1(outputs)
+        outputs = self.sp_enc_block2(outputs)
+        outputs = self.tp_enc_block1(outputs)
+        outputs = self.tp_enc_block2(outputs)
+        outputs = self.reg_norm(outputs)
+        outputs = self.reg_pool(outputs)
+        outputs = self.reg_out(outputs)
+        return outputs
+
+@keras.saving.register_keras_serializable()
+class SkeletonGraphModel(BaseSkeletonModel):
+    """ Neural network model that estimates bone lengths from a sequence of poses.
+    """    
+    def __init__(self, configuration, name="skeleton-model", *args, **kwargs):
+        """_summary_
+
+        Parameters
+        ----------
+        params : dict
+            Contains the configuration parameters for the module.
+        name : str, optional
+            Name for the neural network, by default "skeleton-model"
+        """        
+        kwargs["name"] = name
+        super().__init__(configuration, *args, **kwargs)
+        if self.configuration:
+            channels = self.configuration["model"]["arch"]["units"]
+        else:
+            channels = 32
+        self.features_out = 10
+        dropout_rate = 0.2
+        
+        # spatial encoder
+        self.bones_enc = layers.PosesToBones()
+        self.expand_channels = keras.layers.Dense(channels, activation='relu')
+        self.sp_enc_block1 = layers.ResidualDenseBlock(channels, dropout_rate=dropout_rate)
+        self.sp_enc_block2 = layers.ResidualDenseBlock(channels, dropout_rate=dropout_rate)
+
+        # Temporal encoder
+        self.tp_enc_block1 = layers.ResidualConvolutionBlock(channels, 5, dropout_rate=dropout_rate)
+        self.tp_enc_block2 = layers.ResidualConvolutionBlock(channels, 3, dropout_rate=dropout_rate)
+        
+        # Regression block
+        self.reg_norm = keras.layers.LayerNormalization()
+        self.reg_pool = keras.layers.GlobalAveragePooling1D(keepdims=True)
+        self.reg_out = keras.layers.Dense(self.features_out)
+
+    def call(self, inputs):
+        outputs = self.bones_enc(inputs)
+        outputs = self.expand_channels(outputs)
+        outputs = self.sp_enc_block1(outputs)
+        outputs = self.sp_enc_block2(outputs)
+        outputs = self.tp_enc_block1(outputs)
+        outputs = self.tp_enc_block2(outputs)
+        outputs = self.reg_norm(outputs)
+        outputs = self.reg_pool(outputs)
+        outputs = self.reg_out(outputs)
+        return outputs

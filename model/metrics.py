@@ -7,33 +7,33 @@
 from keras import ops
 
 
-def mean_position_error(y_true, y_pred):
+def mean_position_error(target, output):
     return ops.mean(
-        ops.norm(y_true - y_pred, axis=-1),  axis=[-1, -2]
+        ops.norm(target - output, axis=-1),  axis=[-1, -2]
     )
 
 
-def mean_velocity_error(y_true, y_pred):
+def mean_velocity_error(target, output):
     return ops.mean(
         ops.norm(
-            (y_true[..., 1:, :, :] - y_true[..., :-1, :, :]) - (y_pred[..., 1:, :, :] - y_pred[..., :-1, :, :]),
+            (target[..., 1:, :, :] - target[..., :-1, :, :]) - (output[..., 1:, :, :] - output[..., :-1, :, :]),
             axis=-1
         ), axis=[-1, -2]
     )
 
 
-def mean_acceleration_error(y_true, y_pred):
-    y_true_acc = y_true[..., 2:, :, :] - 2 * y_true[..., 1:-1, :, :] + y_true[..., :-2, :, :]
-    y_pred_acc = y_pred[..., 2:, :, :] - 2 * y_pred[..., 1:-1, :, :] + y_pred[..., :-2, :, :]
+def mean_acceleration_error(target, output):
+    target_acc = target[..., 2:, :, :] - 2 * target[..., 1:-1, :, :] + target[..., :-2, :, :]
+    output_acc = output[..., 2:, :, :] - 2 * output[..., 1:-1, :, :] + output[..., :-2, :, :]
     return ops.mean(
         ops.norm(
-            y_true_acc - y_pred_acc, axis=-1
+            target_acc - output_acc, axis=-1
             ), axis=[-1, -2]
         )
 
 
 def distance(position1, position2):
-    return ops.norm(position1 - position2, axis=-1)
+    return ops.norm(position1 - position2, axis=-1, keepdims=True)
 
 
 def get_bones(positions):
@@ -52,22 +52,20 @@ def get_bones(positions):
     return length
 
 
-def mean_bone_length_error(y_true, y_pred):
+def mean_bone_length_error(target, output):
     return ops.mean(
         ops.abs(
-            get_bones(y_true) - get_bones(y_pred)
+            get_bones(target) - get_bones(output)
         )
     )
 
-
 def bone_length_variance(positions, per_bone=False):
     bones = get_bones(positions)
-    mean_bone = ops.mean(bones, axis=1)
+    mean_bone = ops.mean(bones, axis=0)
     variance = ops.sqrt(ops.mean((bones - mean_bone) ** 2, axis=0))
     if not per_bone:
         variance = ops.mean(variance)
     return variance
-
 
 
 # %% Per frame errors

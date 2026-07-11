@@ -4,88 +4,68 @@
 @author: mansour
 """
 
-import pickle
-
 import tensorflow as tf
+import keras
 from types import SimpleNamespace
 from model.graph import laplacian, skeleton
 from model import layers, models, ops
-import utility.tools as tools
+import utility.ops
 
 
 class SkeletonConstraintsComputation(tf.Module):
     """ Class for the Skeleton Constraints Computation.
         It uses a SkeletonModel for bone lengths estimation.
         It computes skeletal constraints `Γ` and also implements
-        the skeleton adjustement algorithm (__call__ method).
+        the skeleton adjustement algorithm (method __call__()).
     """    
-    def __init__(self, resume, name="skel_constrained_computation"):
-        """_summary_
+    def __init__(self, resume, bones=skeleton.H36M_17_JOINTS_SKELETON_BONES_PAIRS, name="skel_constrained_computation"):
+        """Creates new instance of SkeletonConstraintsComputation.
 
         Parameters
         ----------
-        params : types.SimpleNamespace
-            Contains the configuration parameters for the module.
-        resume : str, optional
-            Path to the module checkpoints data, by default "./checkpoints". The directory
-            should contain a "saved.pkl" file and a "weights.keras" file.
+        resume : str
+            Path to the module checkpoints data.
         name : str, optional
             Name for the module, by default "skel_constrained_computation"
         """        
         super().__init__(name)
-        if resume:
-            import pickle
-            with open(f"{resume}/saved.pkl", "rb") as fd:
-                state = pickle.load(fd)
-            self.params = state['config']
-    
-        self.window = self.params.skelmodel.window
-        joints = self.params.graph.skeleton.number_of_joints
-        edges = self.params.graph.skeleton.bones
-        skel = skeleton.SkeletonGraph(joints, edges)
+        self.skeleton_model = keras.saving.load_model(resume)
+        config = self.skeleton_model.configuration
+        self.window = config["model"]["arch"]["window"]
+        joints = config["dataset"]["graph"]["skeleton"]["number_of_joints"]
+        skel = skeleton.SkeletonGraph(joints, bones)
         self.D = laplacian.create_matrix_D(skel, 1)
         self.U = laplacian.create_matrix_U(skel, 1, [0])
-        # self.wU = 0.3 * self.U
-        # self.wD = 0.7 * self.D
-        self.DU = tf.concat((self.D, self.U), axis=1)
-        self.DU = tf.expand_dims(self.DU, axis=0)
+        self.DU = keras.ops.concatenate((self.D, self.U), axis=1)
+        self.DU = keras.ops.expand_dims(self.DU, axis=0)
         
-        # arch = state['arch']
-        config = self.params['config']
-        self.skeleton_model = models.SkeletonModel(config)
-        # self.skeleton_model = SkeletonModel()
-        self.skeleton_model.build([None, None, 34])
-        self.skeleton_model.load_weights(f"{resume}/weights.keras")
-        self.data_parameters = self.params['data_params']
-
-        # self.smoother = layer.SmoothingLayer(5)
+        self.data_parameters = self.skeleton_model.get_normalization_parameters()
 
     def __call__(self, inputs):
         # print(inputs[0].shape, inputs[1].shape)
-        b, t, _ = inputs[0].shape
-        # outputs = self.smoother(inputs)
-        # outputs = inputs[0]
-        # Compute desired gamma
-        bones = self.skeleton_model(inputs[1], training=False)
-        gamma, bones = self.get_gamma(ops.vectorize(inputs[0]), bones,
-                                      self.data_parameters[2],
-                                      self.data_parameters[3])
+        b, t, _, _ = inputs[0].shape
+        # Compute gamma
+        bones = self.skeleton_model(inputs[1])
+        gamma, bones = self.get_gamma(
+            inputs[0], bones, self.data_parameters[2], self.data_parameters[3]
+        )
 
         # Linear resolution
-        u = tf.zeros((b, t, 1, 3))
-        rhs = tf.concat((gamma, u), axis=2)
-        outputs = tf.linalg.solve(tf.tile(self.DU, [b, t, 1, 1]),
-                                  rhs)
+        u = inputs[0][..., 0:1, :]
+        rhs = keras.ops.concatenate((gamma, u), axis=2)
+        du = keras.ops.tile(self.DU, [b, t, 1, 1])
+        # du = keras.ops.swapaxes(du, -1, -2) @ du
+        outputs = keras.ops.linalg.solve(du, rhs)
 
-        outputs = tf.reshape(outputs, (b, t, -1))
         return outputs, gamma, bones
+    
+    def set_normalization_parameters(self, parameters):
+        self.data_parameters = [keras.ops.convert_to_tensor(parameters[i]) for i in range(len(parameters))] 
 
     @staticmethod
     def get_gamma(inputs, bones, bone_mean, bone_std):
         batch, length, joints, _ = inputs.shape
-        un_norm_bones = tools.denormalise_data(bones, bone_mean, bone_std)
-        # un_norm_bones = bones * tf.expand_dims(bone_std, 0)
-        # un_norm_bones += tf.reshape(bone_mean, (bones.shape[0], 1, bone_mean.shape[0]))
+        un_norm_bones = utility.ops.denormalise(bones, bone_mean, bone_std)
 
         # Gets bone lengths
         hips_norm = un_norm_bones[:, :, 0:1]
@@ -121,24 +101,24 @@ class SkeletonConstraintsComputation(tf.Module):
         humerus_right = inputs[:, :, 14, :] - inputs[:, :, 15, :]
         radius_right = inputs[:, :, 15, :] - inputs[:, :, 16, :]
 
-        hips_right = (hips_norm / tf.norm(hips_right, axis=-1, keepdims=True)) * hips_right
-        hips_left = (hips_norm / tf.norm(hips_left, axis=-1, keepdims=True)) * hips_left
-        femur_right = (femur_norm / tf.norm(femur_right, axis=-1, keepdims=True)) * femur_right
-        femur_left = (femur_norm / tf.norm(femur_left, axis=-1, keepdims=True)) * femur_left
-        tibia_left = (tibia_norm / tf.norm(tibia_left, axis=-1, keepdims=True)) * tibia_left
-        tibia_right = (tibia_norm / tf.norm(tibia_right, axis=-1, keepdims=True)) * tibia_right
-        spine_back = (spine_back_norm / tf.norm(spine_back, axis=-1, keepdims=True)) * spine_back
-        spine_top = (spine_top_norm / tf.norm(spine_top, axis=-1, keepdims=True)) * spine_top
-        neck = (neck_norm / tf.norm(neck, axis=-1, keepdims=True)) * neck
-        head = (head_norm / tf.norm(head, axis=-1, keepdims=True)) * head
-        clavicle_left = (clavicle_norm / tf.norm(clavicle_left, axis=-1, keepdims=True)) * clavicle_left
-        clavicle_right = (clavicle_norm / tf.norm(clavicle_right, axis=-1, keepdims=True)) * clavicle_right
-        humerus_left = (humerus_norm / tf.norm(humerus_left, axis=-1, keepdims=True)) * humerus_left
-        humerus_right = (humerus_norm / tf.norm(humerus_right, axis=-1, keepdims=True)) * humerus_right
-        radius_left = (radius_norm / tf.norm(radius_left, axis=-1, keepdims=True)) * radius_left
-        radius_right = (radius_norm / tf.norm(radius_right, axis=-1, keepdims=True)) * radius_right
+        hips_right = (hips_norm / keras.ops.norm(hips_right, axis=-1, keepdims=True)) * hips_right
+        hips_left = (hips_norm / keras.ops.norm(hips_left, axis=-1, keepdims=True)) * hips_left
+        femur_right = (femur_norm / keras.ops.norm(femur_right, axis=-1, keepdims=True)) * femur_right
+        femur_left = (femur_norm / keras.ops.norm(femur_left, axis=-1, keepdims=True)) * femur_left
+        tibia_left = (tibia_norm / keras.ops.norm(tibia_left, axis=-1, keepdims=True)) * tibia_left
+        tibia_right = (tibia_norm / keras.ops.norm(tibia_right, axis=-1, keepdims=True)) * tibia_right
+        spine_back = (spine_back_norm / keras.ops.norm(spine_back, axis=-1, keepdims=True)) * spine_back
+        spine_top = (spine_top_norm / keras.ops.norm(spine_top, axis=-1, keepdims=True)) * spine_top
+        neck = (neck_norm / keras.ops.norm(neck, axis=-1, keepdims=True)) * neck
+        head = (head_norm / keras.ops.norm(head, axis=-1, keepdims=True)) * head
+        clavicle_left = (clavicle_norm / keras.ops.norm(clavicle_left, axis=-1, keepdims=True)) * clavicle_left
+        clavicle_right = (clavicle_norm / keras.ops.norm(clavicle_right, axis=-1, keepdims=True)) * clavicle_right
+        humerus_left = (humerus_norm / keras.ops.norm(humerus_left, axis=-1, keepdims=True)) * humerus_left
+        humerus_right = (humerus_norm / keras.ops.norm(humerus_right, axis=-1, keepdims=True)) * humerus_right
+        radius_left = (radius_norm / keras.ops.norm(radius_left, axis=-1, keepdims=True)) * radius_left
+        radius_right = (radius_norm / keras.ops.norm(radius_right, axis=-1, keepdims=True)) * radius_right
 
-        skeleton_bones = tf.concat((hips_right,
+        skeleton_bones = keras.ops.concatenate((hips_right,
                                     femur_right,
                                     tibia_right,
                                     hips_left,
@@ -156,7 +136,7 @@ class SkeletonConstraintsComputation(tf.Module):
                                     radius_right
                                     ), axis=-1)
 
-        skeleton_bones = tf.reshape(skeleton_bones, [batch, length, joints - 1, -1])
+        skeleton_bones = keras.ops.reshape(skeleton_bones, [batch, length, joints - 1, -1])
         return skeleton_bones, un_norm_bones
 
 
@@ -165,33 +145,26 @@ class MoCoSys(tf.Module):
     """    
     def __init__(
             self,
-            skm_path=".checkpoints/best/model_skm",
-            mft_path=".checkpoints/best/model_mft",
-            name="correction_modules"
+            skm_path,
+            mft_path,
+            name="mocosys"
     ):
         """Constructor.
 
         Parameters
         ----------
-        skm_path : str, optional
-            Path to the checkpoints of the skeleton model for bone lengths estimation, by default ".checkpoints/best/model_skm"
-        mft_path : str, optional
-            Path to the checkpoint of the motion fine tuning model, by default ".checkpoints/best/model_mft"
+        skm_path : str
+            Path to the checkpoints of the skeleton model for bone lengths estimation.
+        mft_path : str
+            Path to the checkpoint of the motion fine tuning model.
         name : str, optional
             Name of the module for tensorflow initialisation, by default "mocosys"
         """        
         super().__init__(name)
         # Motion Fine Tuning Model
-        with open(f"{mft_path}/state.pkl", "rb") as fd:
-            state_mft = pickle.load(fd)
-        mft_config = state_mft['config']
-        self.mft_params = mft_config
-        bones_pairs = mft_config.skeleton.bones
-        self.motion_correction = models.MotionFineTuningModel(mft_config, bones_pairs)
-        self.motion_correction(tf.random.uniform((1, 27, 51)))
-        self.motion_correction.load_weights(f"{mft_path}/weights.keras")
-
-        self.skeleton_correction = SkeletonConstraintsComputation(None, skm_path)
+        self.motion_fine_tuning = keras.saving.load_model(mft_path)
+        # Skeleton Constraints Computation
+        self.skeleton_correction = SkeletonConstraintsComputation(skm_path)
         
 
     def __call__(self, inputs):
@@ -206,56 +179,41 @@ class MoCoSys(tf.Module):
 
         Returns
         -------
-        tensorflow.Tensor
+        KerasTensor
             The corrected 3D poses sequence.
         """        
-        ## Skeleton adjustement + motion correction
-        # corrected, _, _ = self.skeleton_correction(inputs)
-        # _, corrected = self.motion_correction(corrected)
-
-        ## Motion correction + skeleton adjustement
-        # _, corrected = self.motion_correction(inputs[0])
-        # corrected, _, _ = self.skeleton_correction([corrected, inputs[1]])
-
-        # Motion correction (with skeleton) + skeleton adjustement
-        corrected, gamma, _ = self.skeleton_correction(inputs)
-        gamma = ops.format_inputs(gamma, self.mft_params.mftmodel.arch.window)
-        batch, length, _, _, features = tf.shape(gamma)
-        gamma = tf.reshape(gamma, (batch, length, -1, features))
-        _, corrected = self.motion_correction(inputs[0], gamma)
-        # _, corrected = self.motion_correction(corrected, gamma)
+        # Motion fine tuning (with skeleton) + skeleton adjustement
+        # corrected, gamma, _ = self.skeleton_correction(inputs)
+        # gamma = ops.format_inputs(gamma, self.motion_fine_tuning.configuration["model"]["arch"]["window"])
+        # print("gamma", gamma.shape)
+        # _, corrected = self.motion_fine_tuning(inputs[0], gamma)
+        _, corrected = self.motion_fine_tuning(inputs[0])
         corrected, _, _ = self.skeleton_correction([corrected, inputs[1]])
         return corrected
 
+    def set_normalization_parameters(self, parameters):
+        self.skeleton_correction.set_normalization_parameters(parameters)
 
 class MotionFineTuner(tf.Module):
     """A tensorflow module for motion fine tuning process in correction system.
     """    
     def __init__(
             self,
-            mft_path=".checkpoints/best/model_mft",
+            mft_path,
             name="correction_modules"
     ):
         """Constructor.
 
         Parameters
         ----------
-        mft_path : str, optional
-            Path to the checkpoint of the motion fine tuning model, by default ".checkpoints/best/model_mft"
+        mft_path : str
+            Path to the checkpoint of the motion fine tuning model.
         name : str, optional
-            Name of the module for tensorflow initialisation, by default "mocosys"
+            Name of the module for tensorflow initialisation, by default "motion-fine-tuner".
         """        
         super().__init__(name)
         # Motion Fine Tuning Model
-        with open(f"{mft_path}/state.pkl", "rb") as fd:
-            state_mft = pickle.load(fd)
-        mft_config = state_mft['config']
-        self.mft_params = mft_config
-        bones_pairs = mft_config.skeleton.bones
-        self.motion_correction = models.MotionFineTuningModel(mft_config, bones_pairs)
-        self.motion_correction(tf.random.uniform((1, 27, 51)))
-        self.motion_correction.load_weights(f"{mft_path}/weights.keras")
-
+        self.motion_correction = keras.saving.load_model(mft_path)
 
     def __call__(self, inputs):
         """Call method for the motion fine tuning process.

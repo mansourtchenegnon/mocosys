@@ -14,12 +14,25 @@ import time
 from model import losses, metrics
 from utility.datasets.loaders.h36m_dataloader import Human36mBoneDatasetLoader, Human36mSotaDatasetLoader
 import utility.logger as logs
-import utility.tools as tools
+import utility.ops as ops
 import tensorflow as tf
-from keras import ops as kops
+from keras import ops as kops, optimizers
 
 from model import solvers
-from model.models import MotionFineTuningModel, SkeletonModel
+from model.models import MotionFineTuningModel, BaseSkeletonModel
+
+
+class MyLRSchedule(optimizers.schedules.LearningRateSchedule):
+
+    def __init__(self, initial_learning_rate):
+        self.initial_learning_rate = initial_learning_rate
+
+    def __call__(self, step):
+        if step < 10:
+            return self.initial_learning_rate
+        else:
+            return self.initial_learning_rate / step
+
 
 class Trainer:
     def __init__(self, config, model, model_type="default"):
@@ -30,7 +43,7 @@ class Trainer:
         ----------
         config : types.SimpleNamespace
             Configuration parameters.
-        model: tf.keras.Model
+        model: keras.Model
             The nn object.
         model_type: str
             The type of the model, for naming purpose.
@@ -42,11 +55,11 @@ class Trainer:
         """
         self.config = config
         self.checkpoint_dir = "./checkpoints/%s/%s" % (model_type, config["running"]["version"])
-        self.log_dir = "./checkpoints/logs/%s/%s" % (model_type, config["running"]["version"])
+        self.log_dir = "./logs/%s/%s" % (model_type, config["running"]["version"])
         self.model = model
         self.normalization_parameters = None
-        tools.make_dir(self.checkpoint_dir)
-        tools.make_dir(self.log_dir)
+        ops.make_dir(self.checkpoint_dir)
+        ops.make_dir(self.log_dir)
         self.logger = logs.Logger("%s/training.log" % self.log_dir)
         self.train_summary_writer = tf.summary.create_file_writer(f"{self.log_dir}")
         self.history = {}
@@ -59,18 +72,18 @@ class Trainer:
             'epoch': epoch,
             'config': self.config
         }
-        self.model.save(f"{self.checkpoint_dir}/best.keras")
-        self.model.save_weights(f"{self.checkpoint_dir}/best.weights.h5")
+        self.model.save(f"{self.checkpoint_dir}/pretrained.keras")
+        # self.model.save_weights(f"{self.checkpoint_dir}/best.weights.h5")
         with open(f"{self.checkpoint_dir}/state.yaml", 'w') as fp:
             yaml.dump(state, fp, default_flow_style=False)
 
-        if self.normalization_parameters:
-            numpy.savez(f"{self.checkpoint_dir}/normalization.npz",
-                inputs_mean=self.normalization_parameters[0],
-                inputs_std=self.normalization_parameters[1],
-                bones_mean=self.normalization_parameters[2],
-                bones_std=self.normalization_parameters[3],
-            )
+        # if self.normalization_parameters:
+        #     numpy.savez(f"{self.checkpoint_dir}/normalization.npz",
+        #         inputs_mean=self.normalization_parameters[0],
+        #         inputs_std=self.normalization_parameters[1],
+        #         bones_mean=self.normalization_parameters[2],
+        #         bones_std=self.normalization_parameters[3],
+        #     )
 
 
 class MFTModelTrainer(Trainer):
@@ -291,7 +304,7 @@ class MFTModelTrainer(Trainer):
             self.logger.printing("\nSaving new best checkpoints at epoch {:03d}".format(epoch))
             self.logger.printing("==========" * 3)
             print("===" * 10)
-        t = tools.secondsToStr(time.time() - t)
+        t = ops.secondsToStr(time.time() - t)
         # History dictionary
         self.history = {
             "train loss": train_loss_results,
@@ -313,7 +326,7 @@ class MFTModelTrainer(Trainer):
 class SkeletonModelTrainer(Trainer):
     def __init__(self,
                 config,
-                model : SkeletonModel,
+                model : BaseSkeletonModel,
                 train_dataloader : Human36mBoneDatasetLoader
         ):
         super().__init__(config, model, "skelmodel")
@@ -328,7 +341,7 @@ class SkeletonModelTrainer(Trainer):
         self.mae = tf.keras.losses.MeanAbsoluteError()
 
         # Optimizer
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
+        self.optimizer = optimizers.Adam(learning_rate=MyLRSchedule(1e-2))
         
         # Metrics to track losses
         self.train_loss = tf.keras.metrics.Mean(name="train_loss")
@@ -356,12 +369,12 @@ class SkeletonModelTrainer(Trainer):
 
     def compute_losses(self, targets, predictions):
         targets = kops.max(targets, axis=1, keepdims=True)
-        loss = self.mse(
+        loss = self.mae(
             targets, predictions
         )
         bone_error = self.mae(
-            tools.denormalise(targets, self.normalization_parameters[2], self.normalization_parameters[3]),
-            tools.denormalise(predictions, self.normalization_parameters[2], self.normalization_parameters[3])
+            ops.denormalise(targets, self.normalization_parameters[2], self.normalization_parameters[3]),
+            ops.denormalise(predictions, self.normalization_parameters[2], self.normalization_parameters[3])
         ) # / 1000
         return loss, bone_error
 
@@ -405,7 +418,7 @@ class SkeletonModelTrainer(Trainer):
 
         with self.train_summary_writer.as_default():
             tf.summary.scalar('train loss', self.train_loss.result(), step=epoch)
-            tf.summary.scalar('train bone error', self.train_bone_error.result(), step=epoch)
+            tf.summary.scalar('train bone error', self.train_bone_error.result() * 1000, step=epoch)
 
     def test_epoch(self, epoch):
         def test_step(data):
@@ -463,5 +476,5 @@ class SkeletonModelTrainer(Trainer):
             )
             logs.print_info(msg)
             print("===" * 10)
-        t = tools.secondsToStr(time.time() - t)
+        t = ops.secondsToStr(time.time() - t)
         logs.print_info(f"Training completed ! Duration: {t}")

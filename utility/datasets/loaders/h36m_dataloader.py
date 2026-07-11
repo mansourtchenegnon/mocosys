@@ -7,7 +7,7 @@
 import tensorflow as tf
 import numpy as np
 
-from utility import tools
+from utility import ops
 from utility.datasets.h36m_dataset import Human36mDatasetGenerator
 
 # To change to the folder where your .npz files are
@@ -57,9 +57,12 @@ class Human36mSotaDataset:
         self._inputs = np.concatenate(contents["inputs"], axis=0)
         self._total_frames = self._inputs.shape[0]
         # input between [0, 1]
-        self._inputs = (self._inputs + 1.) / 2.
+        # self._inputs = (self._inputs + 1.) / 2.
         # root related inputs
         # self.inputs = self.inputs - np.tile(self.inputs[:, :2], [1, int(self.inputs.shape[-1] / 2)])
+        bones = get_h36m_17_bones_length(self._targets)
+        bones, self._bones_mean, self._bones_std = ops.normalize_data(bones)
+        self._inputs2d_mean, self._inputs2d_std = np.ones((1,)), np.ones((1,))
         if self._fused:
             self._inputs = np.reshape(self._inputs, (self._total_frames, -1))
             self._estimations = np.reshape(self._estimations, (self._total_frames, -1))
@@ -116,7 +119,7 @@ class Human36mSotaDataset:
         self.sequence_index = slice_set(self._chunk_size, self._frame_numbers)
 
     def get_parameters(self):
-        return [0.0], [0.0]
+        return self._inputs2d_mean, self._inputs2d_std, self._bones_mean, self._bones_std
 
     def dataset(self):
         if self._fused:
@@ -152,7 +155,7 @@ class Human36mSotaDatasetLoader:
         return self._dataset.batch(self._batch_size)
     
     def get_train_validation_datasets(self, split=0.8):
-        train_size = int(self.size() * split)
+        train_size = int(len(self) * split)
         train_set = self._dataset.take(train_size)
         validation_set = self._dataset.skip(train_size)
         return train_set.shuffle(1000, seed=self._seed).batch(self._batch_size), validation_set.shuffle(1000, seed=self._seed).batch(self._batch_size)
@@ -160,7 +163,7 @@ class Human36mSotaDatasetLoader:
     def get_parameters(self):
         return self._parameters
     
-    def size(self):
+    def __len__(self):
         return self._size
     
     def total_frames(self):
@@ -292,17 +295,16 @@ class Human36mBoneDatasetLoader:
             for i in range(len(poses_3d)):
                 self._frames_count.append(poses_3d[i].shape[0])
             self._inputs2d = np.concatenate(poses_2d, axis=0)
-            self._inputs2d = (self._inputs2d + 1.) / 2.
-            # self._inputs2d_mean = np.mean(self._inputs2d)
-            # self._inputs2d_std = np.std(self._inputs2d)
+            # self._inputs2d = (self._inputs2d + 1.) / 2.
             targets3d = np.concatenate(poses_3d, axis=0)  # except root, all other joints are root related
             # root3d = targets3d[:, [0], :]  # root contains the trajectory
             targets3d[:, 0, :] = 0  # remove root trajectory
             self._bones = get_h36m_17_bones_length(targets3d)
             if self._fused:
                 self._inputs2d = np.reshape(self._inputs2d, (self._inputs2d.shape[0], -1))
-            self._bones, self._bones_mean, self._bones_std = tools.normalize_data(self._bones)
-            self._inputs2d, self._inputs2d_mean, self._inputs2d_std = tools.normalize_data(self._inputs2d)
+            self._bones, self._bones_mean, self._bones_std = ops.normalize_data(self._bones)
+            self._inputs2d_mean, self._inputs2d_std = np.ones((1,)), np.ones((1,))
+            # self._inputs2d, self._inputs2d_mean, self._inputs2d_std = tools.normalize_data(self._inputs2d)
             self._names = codenames
             self._cut_names = []
             self.sequence_index = None
@@ -424,85 +426,85 @@ def get_h36m_17_bones_length(positions):
     def distance(start, end):
         return np.linalg.norm(start - end, axis=-1)
 
-    length = np.zeros((positions.shape[0], 10))
-    length[:, 0] = (
-        distance(positions[:, 0, :], positions[:, 1, :])
-        + distance(positions[:, 0, :], positions[:, 4, :])
+    hips = (
+        distance(positions[..., 0:1, :], positions[..., 1:2, :])
+        + distance(positions[..., 0:1, :], positions[..., 4:5, :])
     ) / 2
-    length[:, 1] = (
-        distance(positions[:, 1, :], positions[:, 2, :])
-        + distance(positions[:, 4, :], positions[:, 5, :])
+    femur = (
+        distance(positions[..., 1:2, :], positions[..., 2:3, :])
+        + distance(positions[..., 4:5, :], positions[..., 5:6, :])
     ) / 2  # 
-    length[:, 2] = (
-        distance(positions[:, 2, :], positions[:, 3, :])
-        + distance(positions[:, 5, :], positions[:, 6, :])
+    tibia = (
+        distance(positions[..., 2:3, :], positions[..., 3:4, :])
+        + distance(positions[..., 5:6, :], positions[..., 6:7, :])
     ) / 2
-    length[:, 3] = distance(
-        positions[:, 0, :], positions[:, 7, :]
+    spine_back = distance(
+        positions[..., 0:1, :], positions[..., 7:8, :]
     )
-    length[:, 4] = distance(
-        positions[:, 7, :], positions[:, 8, :]
+    spine_top = distance(
+        positions[..., 7:8, :], positions[..., 8:9, :]
     )
-    length[:, 5] = distance(
-        positions[:, 8, :], positions[:, 9, :]
+    neck = distance(
+        positions[..., 8:9, :], positions[..., 9:10, :]
     )
-    length[:, 6] = distance(
-        positions[:, 9, :], positions[:, 10, :]
+    head = distance(
+        positions[..., 9:10, :], positions[..., 10:11, :]
     )
-    length[:, 7] = (
-        distance(positions[:, 8, :], positions[:, 11, :])
-        + distance(positions[:, 8, :], positions[:, 14, :])
+    clavicle = (
+        distance(positions[..., 8:9, :], positions[..., 11:12, :])
+        + distance(positions[..., 8:9, :], positions[..., 14:15, :])
     ) / 2
-    length[:, 8] = (
-        distance(positions[:, 14, :], positions[:, 15, :])
-        + distance(positions[:, 11, :], positions[:, 12, :])
+    humerus = (
+        distance(positions[..., 14:15, :], positions[..., 15:16, :])
+        + distance(positions[..., 11:12, :], positions[..., 12:13, :])
     ) / 2
-    length[:, 9] = (
-        distance(positions[:, 15, :], positions[:, 16, :])
-        + distance(positions[:, 12, :], positions[:, 13, :])
+    radius = (
+        distance(positions[..., 15:16, :], positions[..., 16:17, :])
+        + distance(positions[..., 12:13, :], positions[..., 13:14, :])
     ) / 2
-    return length
+    return np.concatenate((hips, femur, tibia, spine_back, spine_top, neck, head, clavicle, humerus, radius),
+                         axis=-1)
 
 
 def get_bones(position_3d):
     def distance(position1, position2):
         return np.sqrt(np.sum(np.square(position1 - position2), axis=-1))
 
-    length = np.zeros((position_3d.shape[0], 10))
-    length[:, 0] = (
-        distance(position_3d[:, 3 * 0: 3 * 0 + 3], position_3d[:, 3 * 1: 3 * 1 + 3])
-        + distance(position_3d[:, 3 * 0: 3 * 0 + 3], position_3d[:, 3 * 4: 3 * 4 + 3])
+    length = np.zeros((*position_3d.shape[:-1], 10))
+    length[..., 0] = (
+        distance(position_3d[..., 3 * 0: 3 * 0 + 3], position_3d[..., 3 * 1: 3 * 1 + 3])
+        + distance(position_3d[..., 3 * 0: 3 * 0 + 3], position_3d[..., 3 * 4: 3 * 4 + 3])
     ) / 2
-    length[:, 1] = (
-        distance(position_3d[:, 3 * 1: 3 * 1 + 3], position_3d[:, 3 * 2: 3 * 2 + 3])
-        + distance(position_3d[:, 3 * 4: 3 * 4 + 3], position_3d[:, 3 * 5: 3 * 5 + 3])
+    length[..., 1] = (
+        distance(position_3d[..., 3 * 1: 3 * 1 + 3], position_3d[..., 3 * 2: 3 * 2 + 3])
+        + distance(position_3d[..., 3 * 4: 3 * 4 + 3], position_3d[..., 3 * 5: 3 * 5 + 3])
     ) / 2
-    length[:, 2] = (
-        distance(position_3d[:, 3 * 2: 3 * 2 + 3], position_3d[:, 3 * 3: 3 * 3 + 3])
-        + distance(position_3d[:, 3 * 5: 3 * 5 + 3], position_3d[:, 3 * 6: 3 * 6 + 3])
+    length[..., 2] = (
+        distance(position_3d[..., 3 * 2: 3 * 2 + 3], position_3d[..., 3 * 3: 3 * 3 + 3])
+        + distance(position_3d[..., 3 * 5: 3 * 5 + 3], position_3d[..., 3 * 6: 3 * 6 + 3])
     ) / 2
-    length[:, 3] = distance(
-        position_3d[:, 3 * 0: 3 * 0 + 3], position_3d[:, 3 * 7: 3 * 7 + 3]
+    length[..., 3] = distance(
+        position_3d[..., 3 * 0: 3 * 0 + 3], position_3d[..., 3 * 7: 3 * 7 + 3]
     )
-    length[:, 4] = distance(
-        position_3d[:, 3 * 7: 3 * 7 + 3], position_3d[:, 3 * 8: 3 * 8 + 3]
+    length[..., 4] = distance(
+        position_3d[..., 3 * 7: 3 * 7 + 3], position_3d[..., 3 * 8: 3 * 8 + 3]
     )
-    length[:, 5] = distance(
-        position_3d[:, 3 * 8: 3 * 8 + 3], position_3d[:, 3 * 9: 3 * 9 + 3]
+    length[..., 5] = distance(
+        position_3d[..., 3 * 8: 3 * 8 + 3], position_3d[..., 3 * 9: 3 * 9 + 3]
     )
-    length[:, 6] = distance(
-        position_3d[:, 3 * 9: 3 * 9 + 3], position_3d[:, 3 * 10: 3 * 10 + 3]
+    length[..., 6] = distance(
+        position_3d[..., 3 * 9: 3 * 9 + 3], position_3d[..., 3 * 10: 3 * 10 + 3]
     )
-    length[:, 7] = (
-        distance(position_3d[:, 3 * 8: 3 * 8 + 3], position_3d[:, 3 * 11: 3 * 11 + 3])
-        + distance(position_3d[:, 3 * 8: 3 * 8 + 3], position_3d[:, 3 * 14: 3 * 14 + 3])
+    length[..., 7] = (
+        distance(position_3d[..., 3 * 8: 3 * 8 + 3], position_3d[..., 3 * 11: 3 * 11 + 3])
+        + distance(position_3d[..., 3 * 8: 3 * 8 + 3], position_3d[..., 3 * 14: 3 * 14 + 3])
     ) / 2
-    length[:, 8] = (
-        distance(position_3d[:, 3 * 14: 3 * 14 + 3], position_3d[:, 3 * 15: 3 * 15 + 3])
-        + distance(position_3d[:, 3 * 11: 3 * 11 + 3], position_3d[:, 3 * 12: 3 * 12 + 3])
+    length[..., 8] = (
+        distance(position_3d[..., 3 * 14: 3 * 14 + 3], position_3d[..., 3 * 15: 3 * 15 + 3])
+        + distance(position_3d[..., 3 * 11: 3 * 11 + 3], position_3d[..., 3 * 12: 3 * 12 + 3])
     ) / 2
-    length[:, 9] = (
-        distance(position_3d[:, 3 * 15: 3 * 15 + 3], position_3d[:, 3 * 16: 3 * 16 + 3])
-        + distance(position_3d[:, 3 * 12: 3 * 12 + 3], position_3d[:, 3 * 13: 3 * 13 + 3])
+    length[..., 9] = (
+        distance(position_3d[..., 3 * 15: 3 * 15 + 3], position_3d[..., 3 * 16: 3 * 16 + 3])
+        + distance(position_3d[..., 3 * 12: 3 * 12 + 3], position_3d[..., 3 * 13: 3 * 13 + 3])
     ) / 2
     return length

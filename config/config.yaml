@@ -3,14 +3,14 @@ model: # model configuration
     channels: 256
     channels_in : 2
     channels_out : 3
-    units : 32  # skeleton model, dense layer 
+    units : 32  # skeleton model, dense layer units and convolution channels
     residual: true
     stages: 1
     window: 3
 
 running:
-  epochs: 10
-  batch_size: 128
+  epochs: 50
+  batch_size: 64
   data_cut : 50
   version: None
 
@@ -23,5 +23,5 @@ dataset: # dataset configuration
       number_of_joints: 17
       joint_input_features: 2
       joint_output_features: 3
-      parents: []
-      bones: []
+      parents: [-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 8, 14, 15]
+      bones: [[0, 1], [1, 2], [2, 3], [0, 4], [4, 5], [5, 6], [0, 7], [7, 8], [8, 9], [9, 10], [8, 11], [11, 12], [12, 13], [8, 14], [14, 15], [15, 16]]

@@ -128,16 +128,32 @@ class Plot3DPoseVs:
 
     def make_bones(self):
         for i, j in ES:
+            # self.bones_1.append(
+            #     cylinder(
+            #         pos=self.get_position(0, i, 1),
+            #         axis=self.get_position(0, j, 1) - self.get_position(0, i, 1),
+            #         radius=RADIUS,
+            #         color=self.color_1
+            #     )
+            # )
             self.bones_1.append(
-                cylinder(
+                cone(
                     pos=self.get_position(0, i, 1),
                     axis=self.get_position(0, j, 1) - self.get_position(0, i, 1),
                     radius=RADIUS,
                     color=self.color_1
                 )
             )
+            # self.bones_2.append(
+            #     cylinder(
+            #         pos=self.get_position(0, i, 2) + self.translation,
+            #         axis=self.get_position(0, j, 2) - self.get_position(0, i, 2),
+            #         radius=RADIUS,
+            #         color=self.color_2
+            #     )
+            # )
             self.bones_2.append(
-                cylinder(
+                cone(
                     pos=self.get_position(0, i, 2) + self.translation,
                     axis=self.get_position(0, j, 2) - self.get_position(0, i, 2),
                     radius=RADIUS,
@@ -182,8 +198,8 @@ class Plot3DPose3Way:
         self.poses_1 = np.reshape(poses_1, [-1, 17, 3])
         self.poses_2 = np.reshape(poses_2, [-1, 17, 3])
         self.poses_3 = np.reshape(poses_3, [-1, 17, 3])
-        self.t1 = vec(500, 0, 0)
-        self.t2 = vec(1000, 0, 0)
+        self.t1 = vec(750, 0, 0)
+        self.t2 = vec(1500, 0, 0)
         self.color_1 = color.green
         self.color_2 = color.red
         self.color_3 = color.yellow
@@ -198,24 +214,48 @@ class Plot3DPose3Way:
 
     def make_bones(self):
         for i, j in ES:
+            # self.bones_1.append(
+            #     cylinder(
+            #         pos=self.get_position(0, i, 1),
+            #         axis=self.get_position(0, j, 1) - self.get_position(0, i, 1),
+            #         radius=RADIUS,
+            #         color=self.color_1
+            #     )
+            # )
             self.bones_1.append(
-                cylinder(
+                cone(
                     pos=self.get_position(0, i, 1),
                     axis=self.get_position(0, j, 1) - self.get_position(0, i, 1),
                     radius=RADIUS,
                     color=self.color_1
                 )
             )
+            # self.bones_2.append(
+            #     cylinder(
+            #         pos=self.get_position(0, i, 2) + self.t1,
+            #         axis=self.get_position(0, j, 2) - self.get_position(0, i, 2),
+            #         radius=RADIUS,
+            #         color=self.color_2
+            #     )
+            # )
             self.bones_2.append(
-                cylinder(
+                cone(
                     pos=self.get_position(0, i, 2) + self.t1,
                     axis=self.get_position(0, j, 2) - self.get_position(0, i, 2),
                     radius=RADIUS,
                     color=self.color_2
                 )
             )
+            # self.bones_3.append(
+            #     cylinder(
+            #         pos=self.get_position(0, i, 3) + self.t2,
+            #         axis=self.get_position(0, j, 3) - self.get_position(0, i, 3),
+            #         radius=RADIUS,
+            #         color=self.color_3
+            #     )
+            # )
             self.bones_3.append(
-                cylinder(
+                cone(
                     pos=self.get_position(0, i, 3) + self.t2,
                     axis=self.get_position(0, j, 3) - self.get_position(0, i, 3),
                     radius=RADIUS,
