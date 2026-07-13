@@ -11,7 +11,7 @@ from utility import ops
 from utility.datasets.h36m_dataset import Human36mDatasetGenerator
 
 # To change to the folder where your .npz files are
-LOCATION = '/home/mansour/Workspace/data/human36m'
+LOCATION = './data/human36m'
 KEYPOINT_TYPE = {
     'cpn': 'cpn_ft_h36m_dbb',
     'detectron': 'detectron_ft_h36m',

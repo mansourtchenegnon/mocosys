@@ -1,6 +1,6 @@
 model: # model configuration
   arch:
-    channels: 256
+    channels: 128
     channels_in : 2
     channels_out : 3
     units : 32  # skeleton model, dense layer units and convolution channels
@@ -9,7 +9,7 @@ model: # model configuration
     window: 3
 
 running:
-  epochs: 50
+  epochs: 150
   batch_size: 64
   data_cut : 50
   version: None
