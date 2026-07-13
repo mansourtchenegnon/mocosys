@@ -42,9 +42,9 @@ def parse_args():
     # parser.add_argument("--stages", type=int, help="Number of times to loop in the intermediate layers.")
 
     # Running parameters
-    # parser.add_argument("--batch_size", default=64, type=int, help="The batch size")
-    # parser.add_argument("--frames", type=int, help="Size of data cut in number of frames")
-    # parser.add_argument("--epochs", default=10, type=int, help="Number of training epochs")
+    parser.add_argument("--batch_size", default=64, type=int, help="The batch size")
+    parser.add_argument("--frames", type=int, help="Size of data cut in number of frames")
+    parser.add_argument("--epochs", default=25, type=int, help="Number of training epochs")
 
     # Reproducibility measure
     parser.add_argument("--seed", default=97, type=int, help="Random seed for reproducibility.")
@@ -56,6 +56,14 @@ def get_config():
     args = parse_args()
     args.config = "./config/config.yaml"
     config = arguments.update_config(args)
+    # Running configurations
+    if args.batch_size:
+        config["running"]["batch_size"] = args.batch_size
+    if args.frames:
+        config["running"]["frames"] = args.frames
+        config["running"]["data_cut"] = args.frames
+    if args.epochs:
+        config["running"]["epochs"] = args.epochs
     version = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     config["running"]["version"] = version
     return config, args

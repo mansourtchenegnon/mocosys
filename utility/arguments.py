@@ -61,16 +61,6 @@ def update_config(args):
     # if args.channels_out:
     #     config["model"]["arch"]["channels_out"] = args.channels_out
 
-    # Running configurations
-    # if args.batch_size:
-    #     config["running"]["batch_size"] = args.batch_size
-    # if args.frames:
-    #     config["running"]["frames"] = args.frames
-    # if args.epochs:
-    #     config["running"]["epochs"] = args.epochs
-    # if args.frames:
-    #     config["running"]["data_cut"] = args.frames
-
     # # only in local for testing
     # config.dataset.location = "/home/mansour/Workspace/phd/codes/npz_data"
 
