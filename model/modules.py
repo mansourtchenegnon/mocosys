@@ -30,6 +30,7 @@ class SkeletonConstraintsComputation(tf.Module):
         """        
         super().__init__(name)
         self.skeleton_model = keras.saving.load_model(resume)
+        # self.skeleton_model = keras.layers.TFSMLayer(resume, call_endpoint='serving_default')
         config = self.skeleton_model.configuration
         self.window = config["model"]["arch"]["window"]
         joints = config["dataset"]["graph"]["skeleton"]["number_of_joints"]
@@ -163,8 +164,10 @@ class MoCoSys(tf.Module):
         super().__init__(name)
         # Motion Fine Tuning Model
         self.motion_fine_tuning = keras.saving.load_model(mft_path)
+        # self.motion_fine_tuning = keras.layers.TFSMLayer(mft_path, call_endpoint='serving_default')
         # Skeleton Constraints Computation
         self.skeleton_correction = SkeletonConstraintsComputation(skm_path)
+        # self.skeleton_correction = SkeletonConstraintsComputation(skm_path)
         
 
     def __call__(self, inputs):

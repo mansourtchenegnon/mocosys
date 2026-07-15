@@ -160,10 +160,16 @@ def test_model(config, args):
     # print("input", inp.shape)
     # print("estimation", poses_est.shape)
     # print("gt", poses_gt.shape)
-    module = SkeletonConstraintsComputation("checkpoints/skelmodel/20260710-224417/pretrained.keras")
+    # module = SkeletonConstraintsComputation("checkpoints/skelmodel/20260710-224417/pretrained.keras")
+    # module.set_normalization_parameters(dataset.get_parameters())
+    module = MoCoSys(
+        "checkpoints/skelmodel/20260710-224417/pretrained.keras",
+        "checkpoints/mftmodel/20260712-102050/pretrained.keras"
+    )
     module.set_normalization_parameters(dataset.get_parameters())
     inputs = [poses_est, inp]
-    poses_cor, gamma, bones = module(inputs)
+    # poses_cor, gamma, bones = module(inputs)
+    poses_cor = module(inputs)
     # print("bones", bones.shape, bones)
     # print("gamma", gamma.shape)
     

@@ -27,6 +27,7 @@ MANIFEST
 data/
 logs/
 checkpoints/
+evaluation/
 
 # IDE settings
 .vscode/

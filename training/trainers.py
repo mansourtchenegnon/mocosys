@@ -69,7 +69,7 @@ class Trainer:
         arch = type(self.model).__name__
         state = {
             'arch': arch,
-            'epoch': epoch,
+            'best_epoch': epoch,
             'config': self.config
         }
         self.model.save(f"{self.checkpoint_dir}/pretrained.keras")
@@ -91,9 +91,14 @@ class MFTModelTrainer(Trainer):
                 config,
                 model : MotionFineTuningModel,
                 train_dataloader : Human36mSotaDatasetLoader,
+                test_dataloader : Human36mSotaDatasetLoader = None
         ):
         super().__init__(config, model, "mftmodel")
-        self._trainset, self._testset = train_dataloader.get_train_validation_datasets()
+        if test_dataloader:
+            self._trainset = train_dataloader
+            self._testset = test_dataloader
+        else:
+            self._trainset, self._testset = train_dataloader.get_train_validation_datasets()
         self._trainset_size = 0
         self._testset_size = 0
         self.BATCH_SIZE = config["running"]["batch_size"]
@@ -327,10 +332,15 @@ class SkeletonModelTrainer(Trainer):
     def __init__(self,
                 config,
                 model : BaseSkeletonModel,
-                train_dataloader : Human36mBoneDatasetLoader
+                train_dataloader : Human36mBoneDatasetLoader,
+                test_dataloader : Human36mBoneDatasetLoader = None
         ):
         super().__init__(config, model, "skelmodel")
-        self._trainset, self._testset = train_dataloader.get_train_validation_datasets()
+        if test_dataloader:
+            self._trainset = train_dataloader
+            self._testset = test_dataloader
+        else:
+            self._trainset, self._testset = train_dataloader.get_train_validation_datasets()
         self.normalization_parameters = train_dataloader.get_parameters()
         model.set_normalization_parameters(self.normalization_parameters)
         self._trainset_size = 0

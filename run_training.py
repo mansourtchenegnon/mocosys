@@ -45,6 +45,7 @@ def parse_args():
     parser.add_argument("--batch_size", default=64, type=int, help="The batch size")
     parser.add_argument("--frames", type=int, help="Size of data cut in number of frames")
     parser.add_argument("--epochs", default=25, type=int, help="Number of training epochs")
+    parser.add_argument("--split", action="store_true", default=False, help="Tells whether to split dataset for validation.")
 
     # Reproducibility measure
     parser.add_argument("--seed", default=97, type=int, help="Random seed for reproducibility.")
@@ -83,7 +84,19 @@ def train_motion_fine_tuning_model(config, args):
         raise Exception(f"Dataset {args.dataset} not recognized!")
     # Create model and trainer
     model = MotionFineTuningModel(config)
-    trainer = MFTModelTrainer(config, model, trainset)
+    # Load test dataset
+    if args.split:
+        trainer = MFTModelTrainer(config, model, trainset)
+    else:
+        testset = Human36mSotaDatasetLoader(
+            training_set=False,
+            keypoints="cpn",
+            batch_size=config["running"]["batch_size"],
+            chunk_size=config["running"]["data_cut"],
+            fused=False,
+            location="data/human36m"
+        )
+        trainer = MFTModelTrainer(config, model, trainset, testset)
     # Start training
     trainer.train()
 
@@ -100,7 +113,16 @@ def train_skeleton_model(config, args):
     # Create model and trainer
     model = SkeletonModel(config)
     # model = SkeletonGraphModel(config)
-    trainer = SkeletonModelTrainer(config, model, trainset)
+    if args.split:
+        trainer = SkeletonModelTrainer(config, model, trainset)
+    else:
+        testset = Human36mBoneDatasetLoader(
+            training_set=True,
+            keypoints="gt",
+            batch_size=config["running"]["batch_size"],
+            chunk_size=config["running"]['data_cut'],
+            fused=False)
+        trainer = SkeletonModelTrainer(config, model, trainset, testset)
     # Start training
     trainer.train()
 
