@@ -147,12 +147,16 @@ class Human36mSotaDatasetLoader:
         self._total_frames = datas.get_frame_count()
         self._batch_size = batch_size
         self._seed = seed
+        self._training_set = training_set
         self._dataset, self.parameters, self._size = datas.dataset()
         # self._dataset = self._dataset.batch(batch_size)
         self._parameters = [tf.convert_to_tensor(item, dtype=tf.float32) for item in self.parameters]
 
     def get_dataset(self):
-        return self._dataset.batch(self._batch_size)
+        if self._training_set:
+            return self._dataset.shuffle(1000, seed=self._seed).batch(self._batch_size)
+        else:
+            return self._dataset.batch(self._batch_size)
     
     def get_train_validation_datasets(self, split=0.8):
         train_size = int(len(self) * split)
@@ -389,6 +393,7 @@ class Human36mBoneDatasetLoader:
             subjects = ["S1","S5","S6","S7","S8"]
         else:
             subjects = ["S9", "S11"]
+        self._training_set = training_set
         camera_params, poses_3d, poses_2d, codenames = data_generator.generate(subjects)
         self._tf_dataset = Human36mBoneDatasetLoader.TFBoneDataset(camera_params, poses_3d, poses_2d, codenames, chunk_size, fused)
         self._dataset = self._tf_dataset.generate_dataset()
@@ -401,7 +406,10 @@ class Human36mBoneDatasetLoader:
         return self._tf_dataset
     
     def get_dataset(self):
-        return self._dataset.batch(self._batch_size)
+        if self._training_set:
+            return self._dataset.shuffle(1000, seed=self._seed).batch(self._batch_size)
+        else:
+            return self._dataset.batch(self._batch_size)
     
     def get_train_validation_datasets(self, split=0.8):
         train_size = int(self.size() * split)

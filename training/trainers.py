@@ -95,8 +95,8 @@ class MFTModelTrainer(Trainer):
         ):
         super().__init__(config, model, "mftmodel")
         if test_dataloader:
-            self._trainset = train_dataloader
-            self._testset = test_dataloader
+            self._trainset = train_dataloader.get_dataset()
+            self._testset = test_dataloader.get_dataset()
         else:
             self._trainset, self._testset = train_dataloader.get_train_validation_datasets()
         self._trainset_size = 0
@@ -337,8 +337,8 @@ class SkeletonModelTrainer(Trainer):
         ):
         super().__init__(config, model, "skelmodel")
         if test_dataloader:
-            self._trainset = train_dataloader
-            self._testset = test_dataloader
+            self._trainset = train_dataloader.get_dataset()
+            self._testset = test_dataloader.get_dataset()
         else:
             self._trainset, self._testset = train_dataloader.get_train_validation_datasets()
         self.normalization_parameters = train_dataloader.get_parameters()
