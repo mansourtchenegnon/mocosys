@@ -33,6 +33,7 @@ def parse_args():
         help='Model architecture to use. For example "mftmodel" or "skelmodel"')
     parser.add_argument("--cuda", action="store_true", default=False,
                         help="enables CUDA training")
+    parser.add_argument("-r", "--resume", type=str, help="Path to the skeleton model checkpoints")
 
     # Architecture parameters
     # parser.add_argument("--channels_in", type=int, help="Number of input channels (2 for 2d, 3 for 3d).")
@@ -73,6 +74,7 @@ def get_config():
 def train_motion_fine_tuning_model(config, args):
     # Load dataset
     if args.dataset == "h36m":
+        print("Loading training set...")
         trainset = Human36mSotaDatasetLoader(
             keypoints="cpn",
             batch_size=config["running"]["batch_size"],
@@ -88,6 +90,7 @@ def train_motion_fine_tuning_model(config, args):
     if args.split:
         trainer = MFTModelTrainer(config, model, trainset)
     else:
+        print("Loading test set...")
         testset = Human36mSotaDatasetLoader(
             training_set=False,
             keypoints="cpn",
@@ -103,6 +106,7 @@ def train_motion_fine_tuning_model(config, args):
 def train_skeleton_model(config, args):
     # Load dataset
     if args.dataset == "h36m":
+        print("Loading training set...")
         trainset = Human36mBoneDatasetLoader(
             keypoints="gt",
             batch_size=config["running"]["batch_size"],
@@ -116,6 +120,7 @@ def train_skeleton_model(config, args):
     if args.split:
         trainer = SkeletonModelTrainer(config, model, trainset)
     else:
+        print("Loading test set...")
         testset = Human36mBoneDatasetLoader(
             training_set=True,
             keypoints="gt",
@@ -163,10 +168,10 @@ def evaluate_skeleton_model(config, args):
         # bone length
         bone_error = tf.reduce_mean(tf.abs(
             ops.denormalise(
-                # keras.ops.max(bones, axis=1, keepdims=True), parameters[2], parameters[3])
-                keras.ops.max(bones, axis=1, keepdims=True), model.get_normalization_parameters()[2], model.get_normalization_parameters()[3])
-                # - functions.denormalise(bones_prediction, parameters[2], parameters[3])
-                - ops.denormalise(bones_prediction, model.get_normalization_parameters()[2], model.get_normalization_parameters()[3])
+                keras.ops.max(bones, axis=1, keepdims=True), parameters[2], parameters[3])
+                # keras.ops.max(bones, axis=1, keepdims=True), model.get_normalization_parameters()[2], model.get_normalization_parameters()[3])
+                - ops.denormalise(bones_prediction, parameters[2], parameters[3])
+                # - ops.denormalise(bones_prediction, model.get_normalization_parameters()[2], model.get_normalization_parameters()[3])
                 # - bones_prediction
         )) * 1000
         bone_errors.append(bone_error)
